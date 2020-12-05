@@ -1,20 +1,32 @@
 import java.util.ArrayList;
+import java.util.LinkedList;
 
 public class Disk {
-    final static int MAXDISK = 512*1024;
-    final static int MAXDISKBLOCK = 4*1024;
-    DiskBlockList diskBlockList;
-    DirectoryItem sroot;             //根目录
-    ArrayList<User>usertable;
-    ArrayList<UserOpenFile> uoftable;
-    ArrayList<SystemOpenFile> softable;
+    final static int MAXDISK = 512*1024;        //总大小
+    final static int MAXDISKBLOCK = 4*1024;     //每一个块的大小
+    LinkedList<DiskBlockNode> diskBlockList;    //空闲盘块链
+    DirectoryItem sroot;                        //根目录
+    ArrayList<User>usertable;                   //用户表
+    ArrayList<UserOpenFile> uoftable;           //用户打开文件表
+    ArrayList<SystemOpenFile> softable;         //系统打开文件表
     Disk(){
-        //初始化分区,目录表,用户进程打开文件表，系统打开文件表
+        /*
+        初始化磁盘分区
+         */
+
+        //初始化根目录,用户进程打开文件表，系统打开文件表
         sroot = new DirectoryItem();
         usertable = new ArrayList<>();
-        diskBlockList = new DiskBlockList();
         uoftable = new ArrayList<>();
         softable = new ArrayList<>();
+
+        //初始化空闲盘块链
+        diskBlockList = new LinkedList<>();
+        int n = Disk.MAXDISK/Disk.MAXDISKBLOCK;
+        for (int i=0;i<n;i++){
+            DiskBlockNode node = new DiskBlockNode();
+            diskBlockList.add(node);
+        }
     }
 }
 class DirectoryItem{            //目录索引项,索引可能是文件的索引，也可能是目录的索引
@@ -44,27 +56,9 @@ class DiskBlockNode{
     public int maxlength;
     public int start;
     public boolean used;
-    public DiskBlockNode next;
     DiskBlockNode(){
         used = false;
         maxlength = Disk.MAXDISKBLOCK;       //设置磁盘块大小为4K
-    }
-}
-class DiskBlockList{
-    public DiskBlockNode head;
-    public int left;
-    DiskBlockList(){
-        head = new DiskBlockNode();
-        //512/4 = 128块
-        int n = Disk.MAXDISK/Disk.MAXDISKBLOCK;
-        left = n;
-        //建立盘块链
-        for (int i=n-1;i>=0;i--) {
-            DiskBlockNode node = new DiskBlockNode();
-            node.start = i * 4096;
-            node.next = head.next;
-            head.next = node;
-        }
     }
 }
 class FCB{
@@ -76,7 +70,7 @@ class FCB{
     public int usecount;
     public long creatTime;
     public long lastModifyTime;
-    public DiskBlockNode fhead;
+    public LinkedList<DiskBlockNode> flist;
 }
 class UserOpenFile{
     public int uid;
@@ -88,7 +82,7 @@ class UserOpenFile{
 class SystemOpenFile{
     public int sid;
     public String filename;
-    public String path;
+    public DirectoryItem fitem;
     public int opencount;
 }
 

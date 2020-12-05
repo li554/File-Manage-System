@@ -8,15 +8,19 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.regex.Pattern;
 
 @WebServlet(name = "cmd",urlPatterns = {"cmd"})
 public class Command extends HttpServlet {
     private String cmd;
     private Disk disk = new Disk();
-    private DiskBlockNode fhead;
+    private FCB fcb;
+    private User user;
     private DirectoryItem current_dir;
     private DirectoryItem uroot;
+    //用一个哈希映射表存储当前打开文件的文件名和文件描述符
+    private HashMap<String,Integer> Ofmap = new HashMap<>();
     /*
         dir 列文件目录
         create 创建文件
@@ -51,13 +55,8 @@ public class Command extends HttpServlet {
                 break;
         }
     }
-    private void initDisk()
-    {
-        disk.diskBlockList.head = new DiskBlockNode();
-        diskHead.maxlength	= MaxDisk;
-        diskHead.useFlag	= 0;
-        diskHead->start		= 0;
-        diskHead->next		= NULL;
+    private void initDisk(){
+        disk = new Disk();
     }
     private void createUser(int permission){
         User user = new User(permission);
@@ -86,33 +85,21 @@ public class Command extends HttpServlet {
         boolean flag = false;   // 标记是否分配成功
         int num = maxLength%Disk.MAXDISKBLOCK==0?maxLength/Disk.MAXDISKBLOCK:maxLength/Disk.MAXDISKBLOCK+1;      //算出需要几个磁盘块
         //判断当前空闲盘块数目是否足够
-        if (num<=disk.diskBlockList.left){
-            DiskBlockNode p = disk.diskBlockList.head;
-            DiskBlockNode q = p.next;
-
-            fhead = new DiskBlockNode();
-            DiskBlockNode fp = fhead;
+        if (num<=disk.diskBlockList.size()){
             int i=0;
-            while (q!=null&&i<num){
+            while (i<num){
+                DiskBlockNode node = disk.diskBlockList.remove();
+                fcb.flist.add(node);
                 i++;
-                fp.next = q;
-                fp = q;
-                p.next = q.next;    //删除q,即将p指向q的指针指向q的下一个节点
-                q = q.next;
             }
             flag = true;
         }
         return flag;
     }
-    private boolean recoverDist(DiskBlockNode head){
-        //删除文件的时候根据头节点获得所有占用的磁盘块，将其重新插入到空闲盘块链的尾部
-        DiskBlockNode p = head.next;
-        DiskBlockNode p = disk.diskBlockList.head;
-        while (p.next!=null){
-            p=p.next;
-        }
-        while (p!=null){
-            p.
+    private void recoverDist(FCB fcb){
+        while (!fcb.flist.isEmpty()){
+            DiskBlockNode node = fcb.flist.remove();
+            disk.diskBlockList.add(node);
         }
     }
     private DirectoryItem search(DirectoryItem dir,ArrayList<String> dirname,int level){
@@ -127,6 +114,11 @@ public class Command extends HttpServlet {
         return null;
     }
     private DirectoryItem findPath(String path){
+        //首先判断路径的合法性
+        String pattern = "([a-zA-Z]:)?(\\\\[a-zA-Z0-9_.-]+)+\\\\?";
+        if (!Pattern.matches(pattern,path)){
+            return null;
+        }
         char ch = path.charAt(0);
         //分割路径，得到各级目录名
         String[] temp = path.split("/");
@@ -139,7 +131,7 @@ public class Command extends HttpServlet {
         }
         //根据第一个字符是否为/判断path为绝对路径还是相对路径
         if (ch=='/') {
-            return search(disk.sroot,dirs,0);
+            return search(uroot,dirs,0);
         }else{
             return search(current_dir,dirs,0);
         }
@@ -149,12 +141,6 @@ public class Command extends HttpServlet {
         String name = req.getParameter("name");
         PrintWriter out = resp.getWriter();
         //首先检查是否重名
-        //首先判断路径的合法性
-        String pattern = "([a-zA-Z]:)?(\\\\[a-zA-Z0-9_.-]+)+\\\\?";
-        if (!Pattern.matches(pattern,path)){
-            out.println("请输入正确的路径");
-            return;
-        }
         DirectoryItem result = findPath(path);
         if (result==null){
             out.println("未找到指定路径");
@@ -170,9 +156,8 @@ public class Command extends HttpServlet {
         }
         //不重名，则开始分配空间
         if (requestDist(0)){        //如果分配空间成功
-            FCB fcb = new FCB();
+            fcb = new FCB();
             fcb.filename = name;
-            fcb.fhead= fhead;
             fcb.creatTime = new Date().getTime();
             fcb.lastModifyTime = fcb.creatTime;
             fcb.size = 0;
@@ -188,8 +173,34 @@ public class Command extends HttpServlet {
             out.println("内存已满，分配空间失败");
         }
     }
-    private void delete(HttpServletRequest req, HttpServletResponse resp){
+    private void delete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String path = req.getParameter("path");
+        String name = req.getParameter("name");
+        PrintWriter out = resp.getWriter();
 
+        //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
+        for (SystemOpenFile file:disk.softable){
+            if (file.filename.equals(name)&&file.opencount>0){
+                out.println("存在进程正在使用该文件,无法删除");
+                return;
+            }
+        }
+        DirectoryItem result = findPath(path);
+        if (result==null){
+            out.println("未找到指定路径");
+            return;
+        }
+        for (DirectoryItem item:result.dirs) {
+            if (item.name.equals(name)){
+                //没有被占用的话，判断一下用户是否有删除文件的权限
+                if (user.permission>=item.fcb.permission){
+                    recoverDist(item.fcb);
+                }else{
+                    out.println("您没有删除当前文件的权限");
+                }
+                break;
+            }
+        }
     }
     private void open(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         PrintWriter out = resp.getWriter();
@@ -202,8 +213,30 @@ public class Command extends HttpServlet {
         }
         //找到所在目录后，从目录项中读取该文件的信息，首先判断是否有打开权限
         for (DirectoryItem item:result.dirs) {
-            if (item.name.equals(name&&)){
+            if (item.name.equals(name)){
+                if (item.fcb.permission>=user.permission){
+                    //权限足够，可以打开,即将该文件的相关信息填入到用户进程打开文件表和系统进程打开文件表
+                    UserOpenFile userOpenFile = new UserOpenFile();
+                    userOpenFile.filename = name;
+                    userOpenFile.rwlocation = 0;
+                    userOpenFile.uid = disk.uoftable.size();
+                    userOpenFile.sid = disk.softable.size();
+                    disk.uoftable.add(userOpenFile);
 
+                    SystemOpenFile systemOpenFile = new SystemOpenFile();
+                    systemOpenFile.sid = disk.softable.size();
+                    systemOpenFile.filename = name;
+                    //打开计数器增加 1
+                    systemOpenFile.opencount += 1;
+                    //将该文件的目录项指针存在系统打开文件表中
+                    systemOpenFile.fitem = item;
+                    disk.softable.add(systemOpenFile);
+
+                    //最终应该返回一个文件描述符，也就是该文件在用户进程打开文件表中的uid
+                    Ofmap.put(name, userOpenFile.uid);
+                }else{
+                    out.println("您没有打开该文件的权限");
+                }
             }
         }
         //如果有，将这些信息填入到系统打开文件表和用户进程打开文件表
