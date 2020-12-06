@@ -54,10 +54,9 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
 }
 class DiskBlockNode{
     public int maxlength;
-    public int start;
-    public boolean used;
+    public byte[] content;
     DiskBlockNode(){
-        used = false;
+        content = null;
         maxlength = Disk.MAXDISKBLOCK;       //设置磁盘块大小为4K
     }
 }
@@ -73,8 +72,9 @@ class FCB{
     public LinkedList<DiskBlockNode> flist;
 }
 class UserOpenFile{
-    public int uid;
+    public Integer uid;         //需要它作为一个引用类型，方便open函数和close函数使用
     public String filename;
+    public int mode;            //表示以什么样的模式打开文件（只读，只写，读写）
     public int rwlocation;
     public int sid;
 }

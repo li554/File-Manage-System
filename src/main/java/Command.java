@@ -3,24 +3,21 @@ import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.regex.Pattern;
 
 @WebServlet(name = "cmd",urlPatterns = {"cmd"})
 public class Command extends HttpServlet {
     private String cmd;
     private Disk disk = new Disk();
-    private FCB fcb;
     private User user;
     private DirectoryItem current_dir;
     private DirectoryItem uroot;
-    //用一个哈希映射表存储当前打开文件的文件名和文件描述符
-    private HashMap<String,Integer> Ofmap = new HashMap<>();
+    private PrintWriter out;
     /*
         dir 列文件目录
         create 创建文件
@@ -31,27 +28,31 @@ public class Command extends HttpServlet {
         write 写文件
      */
     private void processCmd(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String name = req.getParameter("name");
+        String path = req.getParameter("path");
+        int uid = Integer.parseInt(req.getParameter("descriptor"));
         switch (cmd){
             case "dir":
-                dir(req,resp);
+                dir(name,path);
                 break;
             case "create":
-                create(req,resp);
+                create(name,path);
                 break;
             case "delete":
-                delete(req,resp);
+                delete(name,path);
                 break;
             case "open":
-                open(req,resp);
+                int mode = Integer.parseInt(req.getParameter("mode"));
+                uid = open(name,path,0);
                 break;
             case "close":
-                close(req,resp);
+                close(uid);
                 break;
             case "read":
-                read(req,resp);
+                read(uid);
                 break;
             case "write":
-                write(req,resp);
+                write(uid);
                 break;
         }
     }
@@ -63,10 +64,7 @@ public class Command extends HttpServlet {
         disk.sroot.dirs.add(user.uroot);
         disk.usertable.add(user);
     }
-    private void login(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String username = req.getParameter("name");
-        String psw = req.getParameter("psw");
-        PrintWriter out = resp.getWriter();
+    private void login(String username,String psw) throws IOException {
         for (User user: disk.usertable){
             if (user.name.equals(username)&&user.psw==psw){
                 uroot = user.uroot;
@@ -76,11 +74,10 @@ public class Command extends HttpServlet {
         }
         out.println("登录失败");
     }
-    private void dir(HttpServletRequest req, HttpServletResponse resp){
-        String path = req.getParameter("path");
+    private void dir(String name,String path){
 
     }
-    private boolean requestDist( int maxLength )
+    private boolean requestDist( LinkedList<DiskBlockNode> list,int maxLength )
     {
         boolean flag = false;   // 标记是否分配成功
         int num = maxLength%Disk.MAXDISKBLOCK==0?maxLength/Disk.MAXDISKBLOCK:maxLength/Disk.MAXDISKBLOCK+1;      //算出需要几个磁盘块
@@ -89,7 +86,7 @@ public class Command extends HttpServlet {
             int i=0;
             while (i<num){
                 DiskBlockNode node = disk.diskBlockList.remove();
-                fcb.flist.add(node);
+                list.add(node);
                 i++;
             }
             flag = true;
@@ -136,10 +133,7 @@ public class Command extends HttpServlet {
             return search(current_dir,dirs,0);
         }
     }
-    private void create(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String path = req.getParameter("path");
-        String name = req.getParameter("name");
-        PrintWriter out = resp.getWriter();
+    private void create(String name,String path) throws IOException {
         //首先检查是否重名
         DirectoryItem result = findPath(path);
         if (result==null){
@@ -154,9 +148,11 @@ public class Command extends HttpServlet {
                 return;
             }
         }
+        LinkedList<DiskBlockNode> list = new LinkedList<>();
         //不重名，则开始分配空间
-        if (requestDist(0)){        //如果分配空间成功
-            fcb = new FCB();
+        if (requestDist(list,0)){        //如果分配空间成功
+            FCB fcb = new FCB();
+            fcb.flist = list;
             fcb.filename = name;
             fcb.creatTime = new Date().getTime();
             fcb.lastModifyTime = fcb.creatTime;
@@ -173,11 +169,7 @@ public class Command extends HttpServlet {
             out.println("内存已满，分配空间失败");
         }
     }
-    private void delete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        String path = req.getParameter("path");
-        String name = req.getParameter("name");
-        PrintWriter out = resp.getWriter();
-
+    private void delete(String name,String path) throws IOException {
         //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
         for (SystemOpenFile file:disk.softable){
             if (file.filename.equals(name)&&file.opencount>0){
@@ -202,14 +194,11 @@ public class Command extends HttpServlet {
             }
         }
     }
-    private void open(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        PrintWriter out = resp.getWriter();
-        String name = req.getParameter("name");
-        String path = req.getParameter("path");
+    private int open(String name,String path,int mode) throws IOException {     //传入的是一个引用对象
         DirectoryItem result = findPath(path);
         if (result==null){
             out.println("未找到指定路径");
-            return;
+            return -1;
         }
         //找到所在目录后，从目录项中读取该文件的信息，首先判断是否有打开权限
         for (DirectoryItem item:result.dirs) {
@@ -218,7 +207,7 @@ public class Command extends HttpServlet {
                     //权限足够，可以打开,即将该文件的相关信息填入到用户进程打开文件表和系统进程打开文件表
                     UserOpenFile userOpenFile = new UserOpenFile();
                     userOpenFile.filename = name;
-                    userOpenFile.rwlocation = 0;
+                    userOpenFile.mode = mode;
                     userOpenFile.uid = disk.uoftable.size();
                     userOpenFile.sid = disk.softable.size();
                     disk.uoftable.add(userOpenFile);
@@ -231,30 +220,76 @@ public class Command extends HttpServlet {
                     //将该文件的目录项指针存在系统打开文件表中
                     systemOpenFile.fitem = item;
                     disk.softable.add(systemOpenFile);
-
                     //最终应该返回一个文件描述符，也就是该文件在用户进程打开文件表中的uid
-                    Ofmap.put(name, userOpenFile.uid);
+                    return userOpenFile.uid;
                 }else{
                     out.println("您没有打开该文件的权限");
                 }
+                break;
             }
         }
-        //如果有，将这些信息填入到系统打开文件表和用户进程打开文件表
-
+        return -1;
     }
-    private void close(HttpServletRequest req, HttpServletResponse resp){
+    private void close(int uid){
+        //关闭文件,需要提供一个文件描述符,系统在用户进程中的打开文件表找到对应文件，然后删除该文件项
+        //并且根据获得的sid查找系统打开文件表，如果系统打开文件表中对应表项的打开计数器的值>1那么-1，否则，删除表项
+        UserOpenFile uitem = disk.uoftable.get(uid);
+        SystemOpenFile sitem = disk.softable.get(uitem.sid);
 
+        //每关闭一个文件，都需要对所有的文件重新编号
+        for (UserOpenFile item:disk.uoftable){
+            if (item.uid>uid){
+                item.uid--;
+            }
+        }
+        disk.uoftable.remove(uid);
+        if (sitem.opencount>1){
+            sitem.opencount--;
+        }else{
+            for (UserOpenFile item:disk.uoftable){
+                if (item.sid>uitem.sid){
+                    item.sid--;
+                }
+            }
+            for (SystemOpenFile item: disk.softable){
+                if (item.sid>uitem.sid){
+                    item.sid--;
+                }
+            }
+            disk.softable.remove(sitem.sid);
+        }
     }
-    private void read(HttpServletRequest req, HttpServletResponse resp){
-
+    private String read(int uid){
+        UserOpenFile uitem = disk.uoftable.get(uid);
+        if (uitem.mode==1){
+            out.println("当前为只写模式");
+            return null;
+        }else{
+            SystemOpenFile sitem = disk.softable.get(uitem.sid);
+            StringBuilder content = new StringBuilder();
+            for (DiskBlockNode node:sitem.fitem.fcb.flist){
+                content.append(node.content);
+            }
+            return content.toString();
+        }
     }
-    private void write(HttpServletRequest req, HttpServletResponse resp){
-
+    private void write(int uid,String content){
+        UserOpenFile uitem = disk.uoftable.get(uid);
+        if (uitem.mode==0){
+            out.println("当前为只读模式模式");
+            return;
+        }else{
+            SystemOpenFile sitem = disk.softable.get(uitem.sid);
+            //现在已经获取到了该文件，通过前端传来的的文本值，我们将该值写入文件
+            //中文字符占两个字节，其他字符为1个字节
+            byte[] bytes = content.getBytes();
+        }
     }
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         super.doGet(req, resp);
         resp.setContentType("text/html;charset=utf-8");
+        out = resp.getWriter();
         cmd = req.getParameter("cmd");
         processCmd(req,resp);
     }
