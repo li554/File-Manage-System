@@ -6,6 +6,7 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.regex.Pattern;
@@ -14,9 +15,8 @@ import java.util.regex.Pattern;
 public class Command extends HttpServlet {
     private String cmd;
     private Disk disk = new Disk();
-    private User user;
+    private User current_user;
     private DirectoryItem current_dir;
-    private DirectoryItem uroot;
     private PrintWriter out;
     /*
         dir 列文件目录
@@ -43,7 +43,8 @@ public class Command extends HttpServlet {
                 break;
             case "open":
                 int mode = Integer.parseInt(req.getParameter("mode"));
-                uid = open(name,path,0);
+                uid = open(name,path,mode);
+                out.println(uid);
                 break;
             case "close":
                 close(uid);
@@ -52,7 +53,8 @@ public class Command extends HttpServlet {
                 read(uid);
                 break;
             case "write":
-                write(uid);
+                String content = req.getParameter("content");
+                write(uid,content);
                 break;
         }
     }
@@ -61,13 +63,14 @@ public class Command extends HttpServlet {
     }
     private void createUser(int permission){
         User user = new User(permission);
-        disk.sroot.dirs.add(user.uroot);
+        disk.sroot.dirs.add(current_user.uroot);
         disk.usertable.add(user);
     }
     private void login(String username,String psw) throws IOException {
         for (User user: disk.usertable){
-            if (user.name.equals(username)&&user.psw==psw){
-                uroot = user.uroot;
+            if (user.name.equals(username)&&user.psw.equals(psw)){
+                current_user = user;
+                current_dir = user.uroot;
                 out.println("登录成功");
                 return;
             }
@@ -110,6 +113,9 @@ public class Command extends HttpServlet {
         }
         return null;
     }
+    private void cd(String path){
+        current_dir = findPath(path);
+    }
     private DirectoryItem findPath(String path){
         //首先判断路径的合法性
         String pattern = "([a-zA-Z]:)?(\\\\[a-zA-Z0-9_.-]+)+\\\\?";
@@ -128,7 +134,7 @@ public class Command extends HttpServlet {
         }
         //根据第一个字符是否为/判断path为绝对路径还是相对路径
         if (ch=='/') {
-            return search(uroot,dirs,0);
+            return search(current_user.uroot,dirs,0);
         }else{
             return search(current_dir,dirs,0);
         }
@@ -185,7 +191,7 @@ public class Command extends HttpServlet {
         for (DirectoryItem item:result.dirs) {
             if (item.name.equals(name)){
                 //没有被占用的话，判断一下用户是否有删除文件的权限
-                if (user.permission>=item.fcb.permission){
+                if (current_user.permission>=item.fcb.permission){
                     recoverDist(item.fcb);
                 }else{
                     out.println("您没有删除当前文件的权限");
@@ -203,7 +209,7 @@ public class Command extends HttpServlet {
         //找到所在目录后，从目录项中读取该文件的信息，首先判断是否有打开权限
         for (DirectoryItem item:result.dirs) {
             if (item.name.equals(name)){
-                if (item.fcb.permission>=user.permission){
+                if (item.fcb.permission>=current_user.permission){
                     //权限足够，可以打开,即将该文件的相关信息填入到用户进程打开文件表和系统进程打开文件表
                     UserOpenFile userOpenFile = new UserOpenFile();
                     userOpenFile.filename = name;
@@ -268,7 +274,7 @@ public class Command extends HttpServlet {
             SystemOpenFile sitem = disk.softable.get(uitem.sid);
             StringBuilder content = new StringBuilder();
             for (DiskBlockNode node:sitem.fitem.fcb.flist){
-                content.append(node.content);
+                content.append(new String(node.content));
             }
             return content.toString();
         }
@@ -282,7 +288,44 @@ public class Command extends HttpServlet {
             SystemOpenFile sitem = disk.softable.get(uitem.sid);
             //现在已经获取到了该文件，通过前端传来的的文本值，我们将该值写入文件
             //中文字符占两个字节，其他字符为1个字节
-            byte[] bytes = content.getBytes();
+            byte[] temp = content.getBytes();
+            byte[] bytes = null;
+            if (uitem.mode==1){
+                //如果是重写，那么先回收分配的磁盘块，然后重新根据大小赋予新的磁盘块
+                recoverDist(sitem.fitem.fcb);
+                uitem.rwlocation = 0;
+                bytes = temp;
+            }else if (uitem.mode==2){
+                //r为0表示所有分配的磁盘块都刚好占满
+                int r = uitem.rwlocation%Disk.MAXDISKBLOCK;
+                if (r!=0){
+                    //r表示最后一个磁盘块中已经写入数据的大小，如果不为0，我们还需向该磁盘块写入maxdiskblock-r的字节数据才能占满它
+                    for (int i=0;i<Disk.MAXDISKBLOCK-r;i++){
+                        sitem.fitem.fcb.flist.getLast().content[r+i] = temp[i];
+                    }
+                    //修改读写指针的数值
+                    uitem.rwlocation += Disk.MAXDISKBLOCK-r;
+                    //去掉bytes数组的已经写入的部分数据
+                    bytes = Arrays.copyOfRange(temp,Disk.MAXDISKBLOCK-r,temp.length);
+                }
+            }
+            //分配剩余的字节数据所需的磁盘块
+            if (!requestDist(sitem.fitem.fcb.flist,bytes.length)){
+                out.println("存储空间已满，分配失败");
+                return;
+            }
+            //分配了空间之后，开始写入剩余数据
+            int i=0;
+            //start表示在分配给该文件的磁盘块里面第一个没写入数据的磁盘块的下标
+            int start = uitem.rwlocation/Disk.MAXDISKBLOCK;
+            for (DiskBlockNode node:sitem.fitem.fcb.flist){
+                if (i>=start){      
+                    node.content = Arrays.copyOfRange(bytes,(i-start)*node.maxlength,(i-start+1)*node.maxlength);
+                }
+                i++;
+            }
+            //修改读写指针
+            uitem.rwlocation += bytes.length;
         }
     }
     @Override
@@ -297,5 +340,9 @@ public class Command extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         super.doPost(req, resp);
+    }
+
+    public static void main(String[] args) {
+
     }
 }

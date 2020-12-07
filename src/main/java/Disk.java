@@ -63,7 +63,6 @@ class DiskBlockNode{
 class FCB{
     public String filename;
     public int type;
-    public int start;
     public int size;
     public int permission;
     public int usecount;
@@ -74,7 +73,7 @@ class FCB{
 class UserOpenFile{
     public Integer uid;         //需要它作为一个引用类型，方便open函数和close函数使用
     public String filename;
-    public int mode;            //表示以什么样的模式打开文件（只读，只写，读写）
+    public int mode;            //表示以什么样的模式打开文件（r:0,w:1,rw:2,aw:3）
     public int rwlocation;
     public int sid;
 }
