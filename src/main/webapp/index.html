@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ch">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script type="text/javascript" src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
+    <script src="https://cdn.staticfile.org/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+    <link href="https://cdn.bootcss.com/element-ui/2.12.0/theme-chalk/index.css" rel="stylesheet">
+    <title>视频主页</title>
+    <style>
+        body{
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+        }
+        .el-header {
+            background-color: #B3C0D1;
+            color: #333;
+            text-align: center;
+            line-height: 60px;
+            display: flex;
+            align-items: center;
+        }
+
+        .el-aside {
+            color: #333;
+            text-align: center;
+            line-height: 200px;
+            width: 300px;
+        }
+
+        .el-main {
+            background-color: #E9EEF3;
+            color: #333;
+        }
+
+        #app {
+            width: 100%;
+            height: 100%;
+        }
+        #app .path_input{
+            flex: 3;
+            margin-right: 200px;
+            background: white;
+            line-height: 30px;
+            padding-left: 20px;
+        }
+        #app .filename_input{
+            flex: 1;
+        }
+        .el-row {
+            margin-bottom: 20px;
+        &:last-child {
+             margin-bottom: 0;
+         }
+        }
+        .el-col {
+            border-radius: 4px;
+        }
+        .bg-purple-dark {
+            background: #99a9bf;
+        }
+        .bg-purple {
+            background: #d3dce6;
+        }
+        .bg-purple-light {
+            background: #e5e9f2;
+        }
+        .grid-content {
+            border-radius: 4px;
+            min-height: 160px;
+        }
+        .row-bg {
+            padding: 10px 0;
+            background-color: #f9fafc;
+        }
+        ol{
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+<el-container id="app">
+    <el-header>
+        <el-breadcrumb separator-class="el-icon-arrow-right" class="path_input">
+            <el-breadcrumb-item :to="{ path: '/' }">/</el-breadcrumb-item>
+            <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }">{{path}}</el-breadcrumb-item>
+        </el-breadcrumb>
+        <el-input placeholder="请输入文件名" v-model="filename" class="filename_input">
+            <el-button slot="append" icon="el-icon-search"></el-button>
+        </el-input>
+    </el-header>
+    <el-container>
+        <el-aside>
+            <el-tree :data="data" :props="defaultProps" @node-click="handleNodeClick"></el-tree>
+        </el-aside>
+        <el-container>
+            <el-main>
+<!--                <el-row :gutter="20">-->
+<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
+<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
+<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
+<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
+<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
+<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
+<!--                </el-row>-->
+                <el-table
+                        :data="tableData"
+                        highlight-current-row
+                        @current-change="handleCurrentChange"
+                        @row-contextmenu="handleContextMenuClick"
+                        style="width: 100%">
+                    <el-table-column
+                            prop="filename"
+                            label="文件名"
+                            sortable
+                            width="180">
+                    </el-table-column>
+                    <el-table-column
+                            prop="modtime"
+                            label="修改日期"
+                            sortable
+                            width="180">
+                    </el-table-column>
+                    <el-table-column
+                            prop="type"
+                            sortable
+                            label="类型">
+                    </el-table-column>
+                    <el-table-column
+                            prop="size"
+                            sortable
+                            label="大小">
+                    </el-table-column>
+                </el-table>
+            </el-main>
+        </el-container>
+    </el-container>
+</el-container>
+<script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script>
+<script src="https://cdn.staticfile.org/axios/0.18.0/axios.min.js"></script>
+<script src="https://cdn.bootcss.com/element-ui/2.12.0/index.js"></script>
+<script>
+    var app = new Vue({
+        el:"#app",
+        data() {
+            return {
+                data: [{
+                    label: 'src',
+                    children: [{
+                        label: 'main',
+                        children: [{
+                            label: 'java'
+                        }]
+                    }]
+                }, {
+                    label: 'target',
+                    children: [{
+                        label: 'classes',
+                        children: [{
+                            label: 'META-INF'
+                        }]
+                    }, {
+                        label: 'FileManageSystem-1.0-SNAPSHOT',
+                        children: [{
+                            label: 'index.jsp'
+                        }]
+                    }]
+                }],
+                defaultProps: {
+                    children: 'children',
+                    label: 'label'
+                },
+                path:"",
+                filename:"",
+                paths:["src","main","java"],
+                files:["a.txt","b.txt","c.txt"],
+                tableData: [{
+                    filename: 'java',
+                    modtime: '2016-05-04',
+                    type:'文件夹',
+                    size:'1KB'
+                },{
+                    filename: 'resources',
+                    modtime: '2016-07-04',
+                    type:'文件夹',
+                    size:'1KB'
+                },{
+                    filename: 'webapp.txt',
+                    modtime: '2016-03-04',
+                    type:'文件',
+                    size:'1KB'
+                },]
+            };
+        },
+        methods: {
+            handleNodeClick(data) {
+                console.log(data);
+            },
+            handleCurrentChange(val) {
+                this.currentRow = val;
+            },
+            handleContextMenuClick(row, column, event){
+
+            }
+        }
+    });
+</script>
+</body>
+
+</html>
