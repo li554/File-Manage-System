@@ -8,6 +8,7 @@ class Mode{
     static final int READ_ONLY = 0;
     static final int WRITE_FIRST = 1;
     static final int WRITE_APPEND = 2;
+    static final int READ_WRITE = 3;
 }
 class Permission{
     static final int READ_ONLY = 1;

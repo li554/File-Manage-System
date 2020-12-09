@@ -36,12 +36,16 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
     public int tag ;            //标志位，区分该表项指向指向一个目录，还是一个文件
     public String name;         //文件名
     public FCB fcb;
-    public FilePermission[] permission;
+    public int permission;
     public ArrayList<DirectoryItem> dirs;
     DirectoryItem(){
         tag = 1;                //默认为目录
         fcb = null;
         dirs = null;
+    }
+    DirectoryItem(String name,int permission){
+        this.permission = permission;
+        this.name = name;
     }
 }
 class DiskBlockNode{
@@ -56,8 +60,7 @@ class FCB{
     public String filename;
     public int type;
     public int size;
-    public User owner;
-    public FilePermission[] permission;
+    public int permission;
     public int usecount;
     public long creatTime;
     public long lastModifyTime;
@@ -84,23 +87,11 @@ class User{
     public String psw;
     public int permission;
     public DirectoryItem uroot;
-    User(int limit){
-        permission = limit;
-        uroot = new DirectoryItem();
-        uroot.name = this.name;
+    User(String name,String psw,int permission){
+        this.name = name;
+        this.psw = psw;
+        this.permission = permission;
+        uroot = new DirectoryItem(name,permission);
         uroot.dirs = new ArrayList<>();
-    }
-}
-class FilePermission{
-    public int r;
-    public int w;
-    public int e;
-    FilePermission(){
-
-    }
-    FilePermission(int r,int w,int e){
-        this.r = r;
-        this.w = w;
-        this.e = e;
     }
 }

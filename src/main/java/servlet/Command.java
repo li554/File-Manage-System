@@ -37,7 +37,7 @@ public class Command extends HttpServlet {
                 dir(name,path);
                 break;
             case "create":
-                create(name,path);
+                create(name,path,7);
                 break;
             case "delete":
                 delete(name,path);
@@ -62,9 +62,9 @@ public class Command extends HttpServlet {
     private void initDisk(){
         disk = new Disk();
     }
-    private void createUser(int permission){
-        User user = new User(permission);
-        disk.sroot.dirs.add(current_user.uroot);
+    private void createUser(String uname,String psw,int permission){
+        User user = new User(uname,psw,permission);
+        disk.sroot.dirs.add(user.uroot);
         disk.usertable.add(user);
     }
     private void login(String username,String psw) throws IOException {
@@ -140,7 +140,7 @@ public class Command extends HttpServlet {
             return search(current_dir,dirs,0);
         }
     }
-    private void create(String name,String path) throws IOException {
+    private void create(String name,String path,int permission) throws IOException {
         //首先检查是否重名
         DirectoryItem result = findPath(path);
         if (result==null){
@@ -166,10 +166,7 @@ public class Command extends HttpServlet {
             fcb.size = 0;
             fcb.type = FileType.USER_FILE;
             fcb.usecount = 0;
-            fcb.permission = new FilePermission[3];
-            fcb.permission[0] = new FilePermission(1,2,5);
-            fcb.permission[1] = new FilePermission(1,2,5);
-            fcb.permission[2] = new FilePermission(1,2,5);
+            fcb.permission = permission;
             DirectoryItem item = new DirectoryItem();
             item.name = name;
             item.fcb = fcb;
@@ -343,16 +340,46 @@ public class Command extends HttpServlet {
             uitem.wpoint += bytes.length;
         }
     }
-    private boolean check_permission(FilePermission[] permission, int mode){
-
-//        switch (current_user.permission){
-//            case 0:
-//                break;
-//            case 1:
-//                break;
-//            case 2:
-//                break;
-//        }
+    private boolean check_permission(int permission, int mode){
+        switch (current_user.permission){
+            case Permission.READ_ONLY:
+                if (mode!=Mode.READ_ONLY){
+                    out.println("该用户为只读权限，不能对文件进行修改");
+                    return false;
+                }
+                break;
+            case Permission.READ_WRITE:
+            case Permission.RW_EXEC:
+                if (mode==Mode.READ_ONLY){
+                    switch (permission){
+                        case Permission.READ_WRITE:break;
+                        case Permission.READ_EXEC:break;
+                        case Permission.READ_ONLY:break;
+                        case Permission.RW_EXEC:break;
+                        default:
+                            out.println("文件对用户为只读权限");return false;
+                    }
+                }else if (mode==Mode.WRITE_APPEND||mode==Mode.WRITE_FIRST){
+                    switch (permission){
+                        case Permission.READ_WRITE:break;
+                        case Permission.WRITE_EXEC:break;
+                        case Permission.WRITE_ONLY:break;
+                        case Permission.RW_EXEC:break;
+                        default:
+                            out.println("文件对用户为只写权限");
+                            return false;
+                    }
+                }else if (mode==Mode.READ_WRITE){
+                    switch (permission){
+                        case Permission.READ_WRITE:break;
+                        case Permission.RW_EXEC:break;
+                        default:
+                            out.println("该文件对用户并不具有可读加可写的权限");
+                            return false;
+                    }
+                }
+                break;
+        }
         return true;
     }
     @Override
@@ -369,9 +396,9 @@ public class Command extends HttpServlet {
         super.doPost(req, resp);
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         Command command = new Command();
-        command.createUser(7);
-        
+        command.createUser("li554","123456",7);
+        command.login("li554","123456");
     }
 }
