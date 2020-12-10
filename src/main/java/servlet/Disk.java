@@ -19,6 +19,7 @@ public class Disk {
 
         //初始化根目录,用户进程打开文件表，系统打开文件表
         sroot = new DirectoryItem();
+        sroot.dirs = new ArrayList<>();
         usertable = new ArrayList<>();
         uoftable = new ArrayList<>();
         softable = new ArrayList<>();
@@ -39,13 +40,15 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
     public int permission;
     public ArrayList<DirectoryItem> dirs;
     DirectoryItem(){
-        tag = 1;                //默认为目录
         fcb = null;
         dirs = null;
     }
-    DirectoryItem(String name,int permission){
+    DirectoryItem(String name,int permission,int tag){
+        this.tag = tag;
         this.permission = permission;
         this.name = name;
+        if (tag==Tag.DIRECTORY_TYPE)
+            dirs = new ArrayList<>();
     }
 }
 class DiskBlockNode{
@@ -91,7 +94,7 @@ class User{
         this.name = name;
         this.psw = psw;
         this.permission = permission;
-        uroot = new DirectoryItem(name,permission);
-        uroot.dirs = new ArrayList<>();
+        this.uroot = new DirectoryItem(name,permission,Tag.DIRECTORY_TYPE);
+        this.uroot.dirs = new ArrayList<>();
     }
 }

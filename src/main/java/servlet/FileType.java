@@ -19,3 +19,7 @@ class Permission{
     static final int WRITE_EXEC = 6;
     static final int RW_EXEC = 7;
 }
+class Tag{
+    static final int FILE_TYPE = 0;
+    static final int DIRECTORY_TYPE = 1;
+}
