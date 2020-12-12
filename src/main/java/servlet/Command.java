@@ -177,7 +177,6 @@ public class Command
         if (requestDist(list,0)){        //如果分配空间成功
             FCB fcb = new FCB();
             fcb.flist = list;
-            fcb.filename = name;
             fcb.creatTime = new Date().getTime();
             fcb.lastModifyTime = fcb.creatTime;
             fcb.size = 0;

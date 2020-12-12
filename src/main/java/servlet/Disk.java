@@ -60,7 +60,6 @@ class DiskBlockNode{
     }
 }
 class FCB{
-    public String filename;
     public int type;
     public int size;
     public int permission;

@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script type="text/javascript" src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
-    <script src="https://cdn.staticfile.org/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
-    <link href="https://cdn.bootcss.com/element-ui/2.12.0/theme-chalk/index.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.12"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
     <title>视频主页</title>
     <style>
         body{
@@ -34,25 +36,26 @@
             color: #333;
         }
 
-        #app {
+        #app,.container {
             width: 100%;
             height: 100%;
         }
-        #app .path_input{
-            flex: 3;
+        .container .path_input{
+            flex: 2;
             margin-right: 200px;
             background: white;
-            line-height: 30px;
+            line-height: 40px;
             padding-left: 20px;
+            border-radius: 5px;
         }
-        #app .filename_input{
+        .container .filename_input{
             flex: 1;
         }
         .el-row {
             margin-bottom: 20px;
-        &:last-child {
-             margin-bottom: 0;
-         }
+        }
+        .el-row:last-child {
+            margin-bottom: 0;
         }
         .el-col {
             border-radius: 4px;
@@ -79,122 +82,169 @@
             padding: 0;
             margin: 0;
         }
+        .el-card{
+            position: absolute;
+        }
+        .el-card__body{
+            padding: 10px;
+        }
+        .text.item{
+            padding: 5px 20px;
+            cursor: pointer;
+        }
+        .text.item:hover{
+            background: #E9EEF2;
+        }
+        .el-breadcrumb{
+            font-size: 14px;
+            line-height: 40px;
+        }
     </style>
 </head>
 
 <body>
-<el-container id="app">
-    <el-header>
-        <el-breadcrumb separator-class="el-icon-arrow-right" class="path_input">
-            <el-breadcrumb-item :to="{ path: '/' }">/</el-breadcrumb-item>
-            <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }">{{path}}</el-breadcrumb-item>
-        </el-breadcrumb>
-        <el-input placeholder="请输入文件名" v-model="filename" class="filename_input">
-            <el-button slot="append" icon="el-icon-search"></el-button>
-        </el-input>
-    </el-header>
-    <el-container>
-        <el-aside>
-            <el-tree :data="data" :props="defaultProps" @node-click="handleNodeClick"></el-tree>
-        </el-aside>
+<div id="app">
+    <el-container class="container">
+        <el-header>
+            <el-breadcrumb @click.native="handleBreadClick" separator-class="el-icon-arrow-right" v-show="!input_show" class="path_input">
+                <el-breadcrumb-item :to="{ path: '/' }">/</el-breadcrumb-item>
+                <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }">{{path}}</el-breadcrumb-item>
+            </el-breadcrumb>
+            <el-input @blur="input_show=false;" placeholder="请输入路径" v-model="filepath" class="path_input" style="background: none;" v-show="input_show"></el-input>
+            <el-input placeholder="请输入文件名" v-model="filename" class="filename_input">
+                <el-button slot="append" icon="el-icon-search" @click.native="searchfile"></el-button>
+            </el-input>
+        </el-header>
         <el-container>
-            <el-main>
-<!--                <el-row :gutter="20">-->
-<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
-<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
-<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
-<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
-<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
-<!--                    <el-col :span="4"><div class="grid-content bg-purple"></div></el-col>-->
-<!--                </el-row>-->
-                <el-table
-                        :data="tableData"
-                        highlight-current-row
-                        @current-change="handleCurrentChange"
-                        @row-contextmenu="handleContextMenuClick"
-                        style="width: 100%">
-                    <el-table-column
-                            prop="filename"
-                            label="文件名"
-                            sortable
-                            width="180">
-                    </el-table-column>
-                    <el-table-column
-                            prop="modtime"
-                            label="修改日期"
-                            sortable
-                            width="180">
-                    </el-table-column>
-                    <el-table-column
-                            prop="type"
-                            sortable
-                            label="类型">
-                    </el-table-column>
-                    <el-table-column
-                            prop="size"
-                            sortable
-                            label="大小">
-                    </el-table-column>
-                </el-table>
-            </el-main>
+            <el-aside>
+                <el-tree :data="data" :props="defaultProps" @node-click="handleNodeClick"></el-tree>
+            </el-aside>
+            <el-container>
+                <el-main @click.native="card_show = false;">
+                    <el-table
+                            :data="tableData"
+                            highlight-current-row
+                            @current-change="handleCurrentChange"
+                            @row-contextmenu="handleContextMenuClick"
+                            style="width: 100%">
+                        <el-table-column
+                                prop="filename"
+                                label="文件名"
+                                sortable
+                                width="180">
+                        </el-table-column>
+                        <el-table-column
+                                prop="modtime"
+                                label="修改日期"
+                                sortable
+                                width="180">
+                        </el-table-column>
+                        <el-table-column
+                                prop="type"
+                                sortable
+                                label="类型">
+                        </el-table-column>
+                        <el-table-column
+                                prop="size"
+                                sortable
+                                label="大小">
+                        </el-table-column>
+                    </el-table>
+                    <el-card class="box-card" v-show="card_show" :style="'left: '+left+';top: '+top+';'">
+                        <div class="text item" @click.stop="openfile">
+                            {{contextmenu[0]}}
+                        </div>
+                        <div class="text item" @click.stop="deletefile">
+                            {{contextmenu[1]}}
+                        </div>
+                        <div class="text item" @click.stop="copyfile">
+                            {{contextmenu[2]}}
+                        </div>
+                        <div class="text item" @click.stop="pastefile">
+                            {{contextmenu[3]}}
+                        </div>
+                        <div class="text item" @click.stop="renamefile">
+                            {{contextmenu[4]}}
+                        </div>
+                        <div class="text item" @click.stop="showfile">
+                            {{contextmenu[5]}}
+                        </div>
+                        <div class="text item" @click.stop="createfile">
+                            {{contextmenu[6]}}
+                        </div>
+                        <div class="text item" @click.stop="mkdir">
+                            {{contextmenu[7]}}
+                        </div>
+                        <div class="text item" @click.stop="rmdir">
+                            {{contextmenu[8]}}
+                        </div>
+                    </el-card>
+                </el-main>
+            </el-container>
         </el-container>
     </el-container>
-</el-container>
-<script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script>
-<script src="https://cdn.staticfile.org/axios/0.18.0/axios.min.js"></script>
-<script src="https://cdn.bootcss.com/element-ui/2.12.0/index.js"></script>
+</div>
 <script>
     var app = new Vue({
         el:"#app",
-        data() {
-            return {
-                data: [{
-                    label: 'src',
+        data: {
+            data: [{
+                label: 'src',
+                children: [{
+                    label: 'main',
                     children: [{
-                        label: 'main',
-                        children: [{
-                            label: 'java'
-                        }]
+                        label: 'java'
+                    }]
+                }]
+            }, {
+                label: 'target',
+                children: [{
+                    label: 'classes',
+                    children: [{
+                        label: 'META-INF'
                     }]
                 }, {
-                    label: 'target',
+                    label: 'FileManageSystem-1.0-SNAPSHOT',
                     children: [{
-                        label: 'classes',
-                        children: [{
-                            label: 'META-INF'
-                        }]
-                    }, {
-                        label: 'FileManageSystem-1.0-SNAPSHOT',
-                        children: [{
-                            label: 'index.jsp'
-                        }]
+                        label: 'index.jsp'
                     }]
-                }],
-                defaultProps: {
-                    children: 'children',
-                    label: 'label'
-                },
-                path:"",
-                filename:"",
-                paths:["src","main","java"],
-                files:["a.txt","b.txt","c.txt"],
-                tableData: [{
-                    filename: 'java',
-                    modtime: '2016-05-04',
-                    type:'文件夹',
-                    size:'1KB'
-                },{
-                    filename: 'resources',
-                    modtime: '2016-07-04',
-                    type:'文件夹',
-                    size:'1KB'
-                },{
-                    filename: 'webapp.txt',
-                    modtime: '2016-03-04',
-                    type:'文件',
-                    size:'1KB'
-                },]
-            };
+                }]
+            }],
+            defaultProps: {
+                children: 'children',
+                label: 'label'
+            },
+            path:"",
+            filename:"",
+            paths:["src","main","java"],
+            files:["a.txt","b.txt","c.txt"],
+            tableData: [{
+                filename: 'java',
+                modtime: '2016-05-04',
+                type:'文件夹',
+                size:'1KB'
+            },{
+                filename: 'resources',
+                modtime: '2016-07-04',
+                type:'文件夹',
+                size:'1KB'
+            },{
+                filename: 'webapp.txt',
+                modtime: '2016-03-04',
+                type:'文件',
+                size:'1KB'
+            }],
+            card_show:false,
+            input_show:false,
+            filepath:"",
+            left:0,
+            top:0,
+            contextmenu:["打开文件","删除文件","复制","粘贴","重命名","查看属性","创建文件","创建文件夹","删除文件夹"]
+        },
+        created:function(){
+            $(document).contextmenu(function(){
+                return false;
+            })
         },
         methods: {
             handleNodeClick(data) {
@@ -203,12 +253,201 @@
             handleCurrentChange(val) {
                 this.currentRow = val;
             },
-            handleContextMenuClick(row, column, event){
-
+            handleBreadClick(){
+                this.input_show = true;
+                var str = this.paths.join("/");
+                this.filepath = str;
+            },
+            handleContextMenuClick(row,column,event){
+                this.card_show = true;
+                $(".el-card").css({
+                    "left":(window.scrollX+event.x+10)+"px",
+                    "top":(window.scrollY+event.y+10)+"px"
+                })
+            },
+            openfile:function (){
+                console.log("open file");
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"open",
+                        name:"a.txt",
+                        path:"/li554/test1",
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            deletefile:function (){
+                //删除文件
+                //首先通过文件名和文件路径获取到对应的目录项
+                //进而需要获取到该文件的文件控制块fcb
+                //将fcb传入recoverDist函数即可回收对应的磁盘块
+                //然后将该文件在目录项中删除
+                console.log("delete file");
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"delete",
+                        name:"a.txt",
+                        path:"/li554/test1"
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            copyfile:function(){
+                console.log("copy file");
+                //复制文件其实就是拿到对应文件的fcb中的flist,调用读函数读出flist中的内容
+                //然后选定复制目录后，确定粘贴的时候，调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
+                //要想拿到fcb,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
+                //当粘贴的时候再去执行创建，写入的工作
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"copy",
+                        name:"a.txt",
+                        path:"/li554/test1"
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            pastefile:function(){
+                console.log("paste file");
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"paste",
+                        name:"a.txt",
+                        path:"/li554/test1",
+                        content:"this is li554"
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            renamefile:function(){
+                //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
+                //如果当前该文件已被打开，则不允许重命名
+                console.log("rename file");
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"rename",
+                        name:"a.txt",
+                        path:"/li554/test1",
+                        newname:""
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            showfile:function(){
+                console.log("show fileProperty");
+                //根据文件名和文件路径查找到对应的目录项和文件fcb，读取文件名和其它所有的属性的值，以json的格式返回文件属性信息
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"showProperty",
+                        name:"a.txt",
+                        path:"/li554/test1",
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            createfile:function (){
+                console.log("create file");
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"create",
+                        name:"a.txt",
+                        path:"/li554/test1"
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            mkdir:function(){
+                console.log("create directory");
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"mkdir",
+                        name:"a.txt",
+                        path:"/li554/test1"
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            rmdir:function(){
+                //删除目录
+                //根据目录名和路径查找到对应的目录项
+                //从目录项中找到所有的子项，如果子项是文件，调用删除文件的函数，
+                //如果子项是目录，那么递归调用rmdir函数，删除目录，删除完所有的子项时结束
+                //最后再删除该目录的表项
+                console.log("remove directory");
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"rmdir",
+                        name:"test11",
+                        path:"/li554/test1"
+                    }
+                })
+                    .then(function (response) {
+                        console.log(response);
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    });
+            },
+            searchfile:function(){
+                //搜索
+                //准备一个数组，用于存放返回的文件项中的各项信息{name:"",path:""}
+                //通过遍历整棵目录索引树，查找是否有文件或目录名包含传入的字符串
+                //如果有，将其名字和路径添加到该数组，最后返回整个数组
+                axios.get('/cmd', {
+                    params: {
+                        cmd:"search",
+                        query:this.filename
+                    }
+                })
+                .then(function (response) {
+                    console.log(response);
+                })
+                .catch(function (error) {
+                    console.log(error);
+                });
             }
         }
     });
 </script>
 </body>
-
 </html>
