@@ -4,6 +4,7 @@ import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.*;
@@ -17,47 +18,9 @@ public class Command
     private Disk disk = new Disk();
     private User current_user;
     private DirectoryItem current_dir;
+    private HashMap<Integer,String>buffer;
+    private int id=0;
 //    private PrintWriter out;
-    /*
-        dir 列文件目录
-        create 创建文件
-        delete 删除文件
-        open 打开文件
-        close 关闭文件
-        read 读文件
-        write 写文件
-     */
-//    private void processCmd(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-//        String name = req.getParameter("name");
-//        String path = req.getParameter("path");
-//        int uid = Integer.parseInt(req.getParameter("descriptor"));
-//        switch (cmd){
-//            case "dir":
-//                dir(name,path);
-//                break;
-//            case "create":
-//                create(name,path,7);
-//                break;
-//            case "delete":
-//                delete(name,path);
-//                break;
-//            case "open":
-//                int mode = Integer.parseInt(req.getParameter("mode"));
-//                uid = open(name,path,mode);
-//                //out.println(uid);
-//                break;
-//            case "close":
-//                close(uid);
-//                break;
-//            case "read":
-//                read(uid);
-//                break;
-//            case "write":
-//                String content = req.getParameter("content");
-//                write(uid,content);
-//                break;
-//        }
-//    }
     private void initDisk(){
         disk = new Disk();
     }
@@ -77,61 +40,16 @@ public class Command
         }
         //out.println("登录失败");
     }
-    private void mkdir(String name,String path){
-        //首先检查是否重名
-        DirectoryItem result = findPath(path);
-        if (result==null){
-            //out.println("未找到指定路径");
-            return;
-        }
-        //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
-        for (DirectoryItem item:result.dirs) {
-            if (item.name.equals(name)){
-                //发生重名
-                //out.println("创建失败，存在重名文件");
-                return;
+    private void delete(DirectoryItem file,DirectoryItem parent){
+                if (check_permission(file.permission, -1)){
+                    recoverDist(file.fcb);
+                    parent.dirs.remove(parent);
+                }else{
+                    //out.println("您没有删除当前文件的权限");
+                }
             }
-        }
-        result.dirs.add(new DirectoryItem(name,Permission.RW_EXEC,Tag.DIRECTORY_TYPE));
-    }
-    synchronized private boolean requestDist(LinkedList<DiskBlockNode> list, int maxLength )
-    {
-        boolean flag = false;   // 标记是否分配成功
-        int num = maxLength% Disk.MAXDISKBLOCK==0?maxLength/ Disk.MAXDISKBLOCK:maxLength/ Disk.MAXDISKBLOCK+1;      //算出需要几个磁盘块
-        //判断当前空闲盘块数目是否足够
-        if (num<=disk.diskBlockList.size()){
-            int i=0;
-            while (i<num){
-                DiskBlockNode node = disk.diskBlockList.remove();
-                list.add(node);
-                i++;
-            }
-            flag = true;
-        }
-        return flag;
-    }
-    private void recoverDist(FCB fcb){
-        while (!fcb.flist.isEmpty()){
-            DiskBlockNode node = fcb.flist.remove();
-            disk.diskBlockList.add(node);
-        }
-    }
-    private DirectoryItem search(DirectoryItem dir, ArrayList<String> dirname, int level){
-        if (level>=dirname.size()){
-            return dir;
-        }
-        for (DirectoryItem item:dir.dirs){
-            if (item.name.equals(dirname.get(level))&&item.dirs!=null){
-                return search(item,dirname,level+1);
-            }
-        }
-        return null;
-    }
-    private void cd(String path){
-        current_dir = findPath(path);
-    }
-    private DirectoryItem findPath(String path){
-        //首先判断路径的合法性
+    private DirectoryItem getParent(String path){
+                //首先判断路径的合法性
 //        String pattern = "([a-zA-Z]:)?(\\\\[a-zA-Z0-9_.-]+)+\\\\?";
 //        if (!Pattern.matches(pattern,path)){
 //            return null;
@@ -149,17 +67,140 @@ public class Command
             }
             //根据第一个字符是否为/判断path为绝对路径还是相对路径
             if (ch=='/') {
-                return search(disk.sroot,dirs,0);
+                return recurSearch(disk.sroot,dirs,0);
             }else{
-                return search(current_dir,dirs,0);
+                return recurSearch(current_dir,dirs,0);
             }
         }else{
             return current_dir;
         }
     }
+    private DirectoryItem recurSearch(DirectoryItem dir, ArrayList<String> dirname, int level){
+                if (level>=dirname.size()){
+                    return dir;
+                }
+                for (DirectoryItem item:dir.dirs){
+                    if (item.name.equals(dirname.get(level))&&item.dirs!=null){
+                        return recurSearch(item,dirname,level+1);
+                    }
+                }
+                return null;
+            }
+    private void rmdir(DirectoryItem dir){
+        for (DirectoryItem sitem:dir.dirs){
+            if (sitem.tag== Tag.FILE_TYPE){
+                delete(sitem,dir);
+            }else{
+                rmdir(sitem);
+            }
+        }
+    }
+    synchronized private boolean requestDist(LinkedList<DiskBlockNode> list, int maxLength){
+        boolean flag = false;   // 标记是否分配成功
+        int num = maxLength% Disk.MAXDISKBLOCK==0?maxLength/ Disk.MAXDISKBLOCK:maxLength/ Disk.MAXDISKBLOCK+1;      //算出需要几个磁盘块
+        //判断当前空闲盘块数目是否足够
+        if (num<=disk.diskBlockList.size()){
+            int i=0;
+            while (i<num){
+                DiskBlockNode node = disk.diskBlockList.remove();
+                list.add(node);
+                i++;
+            }
+            flag = true;
+        }
+        return flag;
+    }
+    synchronized private void recoverDist(FCB fcb){
+        while (!fcb.flist.isEmpty()){
+            DiskBlockNode node = fcb.flist.remove();
+            disk.diskBlockList.add(node);
+        }
+    }
+    private boolean check_permission(int permission, int mode){
+                switch (current_user.permission){
+                    case Permission.READ_ONLY:
+                        if (mode!=Mode.READ_ONLY){
+                            //out.println("该用户为只读权限，不能对文件进行修改");
+                            return false;
+                        }
+                        break;
+                    case Permission.READ_WRITE:
+                    case Permission.RW_EXEC:
+                        if (mode==Mode.READ_ONLY){
+                            switch (permission){
+                                case Permission.READ_WRITE:break;
+                                case Permission.READ_EXEC:break;
+                                case Permission.READ_ONLY:break;
+                                case Permission.RW_EXEC:break;
+                                default:
+                                    //out.println("文件对用户为只读权限");return false;
+                            }
+                        }else if (mode==Mode.WRITE_APPEND||mode==Mode.WRITE_FIRST){
+                            switch (permission){
+                                case Permission.READ_WRITE:break;
+                                case Permission.WRITE_EXEC:break;
+                                case Permission.WRITE_ONLY:break;
+                                case Permission.RW_EXEC:break;
+                                default:
+                                    //out.println("文件对用户为只写权限");
+                                    return false;
+                            }
+                        }else if (mode==Mode.READ_WRITE){
+                            switch (permission){
+                                case Permission.READ_WRITE:break;
+                                case Permission.RW_EXEC:break;
+                                default:
+                                    //out.println("该文件对用户并不具有可读加可写的权限");
+                                    return false;
+                            }
+                        }
+                        break;
+                }
+                return true;
+            }
+    private void cd(String path){
+        current_dir = getParent(path);
+    }
+    private void dir(){
+                for (DirectoryItem item:current_dir.dirs){
+                    System.out.println(item.name);
+                    //out.println(item.name);
+                }
+            }
+    private void mkdir(String name,String path){
+                //首先检查是否重名
+                DirectoryItem result = getParent(path);
+                if (result==null){
+                    //out.println("未找到指定路径");
+                    return;
+                }
+                //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
+                for (DirectoryItem item:result.dirs) {
+                    if (item.name.equals(name)){
+                        //发生重名
+                        //out.println("创建失败，存在重名文件");
+                        return;
+                    }
+                }
+                result.dirs.add(new DirectoryItem(name,Permission.RW_EXEC,Tag.DIRECTORY_TYPE));
+            }
+    private void rmdir(String name,String path) throws IOException {
+                DirectoryItem result = getParent(path);
+                if (result==null){
+                    //out.println("未找到指定路径");
+                    return;
+                }
+                //在获得的目录中查找对应的目录
+                for (DirectoryItem item:result.dirs) {
+                    if (item.name.equals(name)){
+                        rmdir(item);
+                        return;
+                    }
+                }
+            }
     private void create(String name,String path,int permission) throws IOException {
         //首先检查是否重名
-        DirectoryItem result = findPath(path);
+        DirectoryItem result = getParent(path);
         if (result==null){
             //out.println("未找到指定路径");
             return;
@@ -198,7 +239,7 @@ public class Command
                 return;
             }
         }
-        DirectoryItem result = findPath(path);
+        DirectoryItem result = getParent(path);
         if (result==null){
             //out.println("未找到指定路径");
             return;
@@ -206,17 +247,13 @@ public class Command
         for (DirectoryItem item:result.dirs) {
             if (item.name.equals(name)){
                 //没有被占用的话，判断一下用户是否有删除文件的权限
-                if (check_permission(item.permission, -1)){
-                    recoverDist(item.fcb);
-                }else{
-                    //out.println("您没有删除当前文件的权限");
-                }
+                delete(item,result);
                 break;
             }
         }
     }
     private int open(String name,String path,int mode) throws IOException {     //传入的是一个引用对象
-        DirectoryItem result = findPath(path);
+        DirectoryItem result = getParent(path);
         if (result==null){
             //out.println("未找到指定路径");
             return -1;
@@ -238,7 +275,8 @@ public class Command
                             return uof.uid;
                         }
                     }
-                    //没有打开，那么将该文件的相关信息填入到用户进程打开文件表和系统进程打开文件表
+                    //没有打开，那么将该文件的相关信息填入到用户进程打开文件表和系统进程打开文件表，同时将文件的使用计数增加1
+                    item.fcb.usecount++;
                     UserOpenFile userOpenFile = new UserOpenFile();
                     userOpenFile.filename = name;
                     userOpenFile.mode = mode;
@@ -278,7 +316,8 @@ public class Command
         try{
             UserOpenFile uitem = disk.uoftable.get(uid);
             SystemOpenFile sitem = disk.softable.get(uitem.sid);
-
+            //将文件的使用计数-1
+            sitem.fitem.fcb.usecount--;
             //每关闭一个文件，都需要对所有的文件重新编号
             for (UserOpenFile item:disk.uoftable){
                 if (item.uid>uid){
@@ -304,7 +343,6 @@ public class Command
         }catch (IndexOutOfBoundsException e){
             System.out.println("文件已经关闭，无需再次关闭");
         }
-
     }
     private String read(int uid){
         UserOpenFile uitem = disk.uoftable.get(uid);
@@ -369,62 +407,42 @@ public class Command
             }
         }
     }
-    private boolean check_permission(int permission, int mode){
-        switch (current_user.permission){
-            case Permission.READ_ONLY:
-                if (mode!=Mode.READ_ONLY){
-                    //out.println("该用户为只读权限，不能对文件进行修改");
-                    return false;
-                }
-                break;
-            case Permission.READ_WRITE:
-            case Permission.RW_EXEC:
-                if (mode==Mode.READ_ONLY){
-                    switch (permission){
-                        case Permission.READ_WRITE:break;
-                        case Permission.READ_EXEC:break;
-                        case Permission.READ_ONLY:break;
-                        case Permission.RW_EXEC:break;
-                        default:
-                            //out.println("文件对用户为只读权限");return false;
-                    }
-                }else if (mode==Mode.WRITE_APPEND||mode==Mode.WRITE_FIRST){
-                    switch (permission){
-                        case Permission.READ_WRITE:break;
-                        case Permission.WRITE_EXEC:break;
-                        case Permission.WRITE_ONLY:break;
-                        case Permission.RW_EXEC:break;
-                        default:
-                            //out.println("文件对用户为只写权限");
-                            return false;
-                    }
-                }else if (mode==Mode.READ_WRITE){
-                    switch (permission){
-                        case Permission.READ_WRITE:break;
-                        case Permission.RW_EXEC:break;
-                        default:
-                            //out.println("该文件对用户并不具有可读加可写的权限");
-                            return false;
-                    }
-                }
-                break;
-        }
-        return true;
+    synchronized private void copy(String name,String path) throws IOException {
+        //复制文件其实就是拿到对应文件的fcb中的flist,调用读函数读出flist中的内容
+        //然后选定复制目录后，确定粘贴的时候，调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
+        //要想拿到fcb,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
+        //当粘贴的时候再去执行创建，写入的工作
+        int uid = open(name,path,Mode.READ_ONLY);
+        String content = read(uid);
+        close(uid);
+        System.out.println(content);
+        //out.println(buffer.size());
+        buffer.put(id++,content);
     }
-//    @Override
-//    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-//        super.doGet(req, resp);
-//        resp.setContentType("text/html;charset=utf-8");
-//        out = resp.getWriter();
-//        cmd = req.getParameter("cmd");
-//        processCmd(req,resp);
-//    }
-//
-//    @Override
-//    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-//        super.doPost(req, resp);
-//    }
-
+    private void paste(String name,String path,int id) throws IOException {
+        //调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
+        create(name,path,Permission.RW_EXEC);
+        int uid = open(name,path,Mode.WRITE_FIRST);
+        write(uid,buffer.get(id));
+        close(uid);
+        buffer.remove(id);
+    }
+    private void rename(String name,String path,String newname) throws IOException{
+        //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
+        DirectoryItem result = getParent(path);
+        for (DirectoryItem item:result.dirs){
+            if (item.name.equals(name)){
+                //如果当前该文件已被打开，则不允许重命名
+                if (item.fcb.usecount>0){
+                    System.out.println("文件占用中，不允许重命名");
+                    //out.println("文件占用中，不允许重命名");
+                    return;
+                }
+                item.name = newname;
+                return;
+            }
+        }
+    }
     public static void main(String[] args) throws IOException {
         Command command = new Command();
         //初始化
@@ -490,9 +508,6 @@ public class Command
             command.input();
         }
     }
-    private void dir(){
-
-    }
     private void input() throws IOException {
         Scanner input=new Scanner(System.in);
         String[] temp = input.nextLine().split("\\s+");
@@ -522,6 +537,16 @@ public class Command
                 mkdir(name,path);
             }
             break;
+            case "rmdir":{
+                String name = a[1];
+                String path = a[2];
+                rmdir(name,path);
+            }
+            break;
+            case "cd":{
+                String path = a[0];
+                cd(path);
+            }
             case "create":{
                 String name = a[1];
                 String path = a[2];
@@ -559,6 +584,39 @@ public class Command
                 write(uid,content);
             }
             break;
+            case "copy":{
+                String name = a[1];
+                String path = a[2];
+                copy(name,path);
+            }
+            break;
+            case "paste":{
+                String name = a[1];
+                String path = a[2];
+                int id = Integer.parseInt(a[2]);
+                paste(name,path,id);
+            }
+            break;
+            case "rename":{
+                String name = a[1];
+                String path = a[2];
+                String newname = a[3];
+                rename(name,path,newname);
+            }
+            break;
         }
     }
+//    @Override
+//    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+//        super.doGet(req, resp);
+//        resp.setContentType("text/html;charset=utf-8");
+//        out = resp.getWriter();
+//        cmd = req.getParameter("cmd");
+//        processCmd(req,resp);
+//    }
+//
+//    @Override
+//    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+//        super.doPost(req, resp);
+//    }
 }
