@@ -188,28 +188,7 @@
     var app = new Vue({
         el:"#app",
         data: {
-            data: [{
-                label: 'src',
-                children: [{
-                    label: 'main',
-                    children: [{
-                        label: 'java'
-                    }]
-                }]
-            }, {
-                label: 'target',
-                children: [{
-                    label: 'classes',
-                    children: [{
-                        label: 'META-INF'
-                    }]
-                }, {
-                    label: 'FileManageSystem-1.0-SNAPSHOT',
-                    children: [{
-                        label: 'index.jsp'
-                    }]
-                }]
-            }],
+            data:[],
             defaultProps: {
                 children: 'children',
                 label: 'label'
@@ -218,22 +197,7 @@
             filename:"",
             paths:["src","main","java"],
             files:["a.txt","b.txt","c.txt"],
-            tableData: [{
-                filename: 'java',
-                modtime: '2016-05-04',
-                type:'文件夹',
-                size:'1KB'
-            },{
-                filename: 'resources',
-                modtime: '2016-07-04',
-                type:'文件夹',
-                size:'1KB'
-            },{
-                filename: 'webapp.txt',
-                modtime: '2016-03-04',
-                type:'文件',
-                size:'1KB'
-            }],
+            tableData: [],
             card_show:false,
             input_show:false,
             filepath:"",
@@ -245,6 +209,26 @@
             $(document).contextmenu(function(){
                 return false;
             })
+            //从后端获取目录数据
+            var that = this;
+            axios.post('/cmd?cmd=getDirectory')
+                .then(function (response) {
+                    console.log(response.data);
+                    for(let i=0;i<response.data.children.length;i++){
+                        that.data.push(response.data.children[i]);
+                    }
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
+            axios.post('/cmd?cmd=getTableData&param=""')
+                .then(function (response) {
+                    console.log(response.data);
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
+            //根据目录查询对应的数据
         },
         methods: {
             handleNodeClick(data) {
@@ -270,8 +254,9 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"open",
-                        name:"a.txt",
-                        path:"/li554/test1",
+                        param:"open",
+                        param:"a.txt",
+                        param:"/li554/test1",
                     }
                 })
                     .then(function (response) {
@@ -291,8 +276,9 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"delete",
-                        name:"a.txt",
-                        path:"/li554/test1"
+                        param:"delete",
+                        param:"a.txt",
+                        param:"/li554/test1"
                     }
                 })
                     .then(function (response) {
@@ -311,8 +297,9 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"copy",
-                        name:"a.txt",
-                        path:"/li554/test1"
+                        param:"copy",
+                        param:"a.txt",
+                        param:"/li554/test1"
                     }
                 })
                     .then(function (response) {
@@ -327,9 +314,10 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"paste",
-                        name:"a.txt",
-                        path:"/li554/test1",
-                        content:"this is li554"
+                        param:"paste",
+                        param:"a.txt",
+                        param:"/li554/test1",
+                        param:"this is li554"
                     }
                 })
                     .then(function (response) {
@@ -346,9 +334,10 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"rename",
-                        name:"a.txt",
-                        path:"/li554/test1",
-                        newname:"b.txt"
+                        param:"rename",
+                        param:"a.txt",
+                        param:"/li554/test1",
+                        param:"b.txt"
                     }
                 })
                     .then(function (response) {
@@ -364,8 +353,9 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"showProperty",
-                        name:"a.txt",
-                        path:"/li554/test1",
+                        param:"showProperty",
+                        param:"a.txt",
+                        param:"/li554/test1",
                     }
                 })
                     .then(function (response) {
@@ -380,8 +370,9 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"create",
-                        name:"a.txt",
-                        path:"/li554/test1"
+                        param:"create",
+                        param:"a.txt",
+                        param:"/li554/test1"
                     }
                 })
                     .then(function (response) {
@@ -396,8 +387,9 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"mkdir",
-                        name:"a.txt",
-                        path:"/li554/test1"
+                        param:"mkdir",
+                        param:"a.txt",
+                        param:"/li554/test1"
                     }
                 })
                     .then(function (response) {
@@ -417,8 +409,9 @@
                 axios.get('/cmd', {
                     params: {
                         cmd:"rmdir",
-                        name:"test11",
-                        path:"/li554/test1"
+                        param:"rmdir",
+                        param:"test11",
+                        param:"/li554/test1"
                     }
                 })
                     .then(function (response) {

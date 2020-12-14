@@ -23,3 +23,10 @@ class Tag{
     static final int FILE_TYPE = 0;
     static final int DIRECTORY_TYPE = 1;
 }
+class Error{
+    static final int DUPLICATION = 0;
+    static final int PERMISSION_DENIED = 1;
+    static final int PATH_NOT_FOUND = 2;
+    static final int DISK_OVERFLOW = 3;
+    static final int USING_BY_OTHERS = 4;
+}
