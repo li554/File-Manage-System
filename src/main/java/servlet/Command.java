@@ -11,6 +11,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.xml.crypto.Data;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.util.*;
 
@@ -643,7 +644,8 @@ public class Command extends HttpServlet {
         processCmd(cmd,a);
     }
     */
-    private void processCmd(String cmd, String[] a) throws IOException {
+    private void processCmd(String[] a) throws IOException {
+        String cmd = a[0];
         switch (cmd) {
             case "reg": {
                 String name = a[1];
@@ -783,14 +785,31 @@ public class Command extends HttpServlet {
         }
         out.println(array.toJSONString());
     }
+    public String[] toStringArray(JSONArray array) {
+        if(array==null)
+            return null;
+
+        String[] arr=new String[array.size()];
+        for(int i=0; i<arr.length; i++) {
+            arr[i]=array.getString(i);
+        }
+        return arr;
+    }
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setContentType("text/html;charset=utf-8");
-        String cmd = req.getParameter("cmd");
-        String[] params = req.getParameterValues("param");
-        System.out.println(cmd);
+        InputStreamReader insr = new InputStreamReader(req.getInputStream(),"utf-8");
+        String result = "";
+        int respInt = insr.read();
+        while(respInt!=-1) {
+            result +=(char)respInt;
+            respInt = insr.read();
+        }
+        JSONObject jsonRet = JSONObject.parseObject(result);
         out = resp.getWriter();
-        processCmd(cmd,params);
+        JSONArray array = jsonRet.getJSONArray("param");
+        String[] a = toStringArray(array);
+        processCmd(a);
     }
 
     @Override

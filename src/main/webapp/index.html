@@ -197,7 +197,12 @@
             filename:"",
             paths:["src","main","java"],
             files:["a.txt","b.txt","c.txt"],
-            tableData: [],
+            tableData: [{
+                "filename":"a.txt",
+                "modtime":"2018-1-12",
+                "type":"文件",
+                "size":10
+            }],
             card_show:false,
             input_show:false,
             filepath:"",
@@ -211,19 +216,24 @@
             })
             //从后端获取目录数据
             var that = this;
-            axios.post('/cmd?cmd=getDirectory')
+            axios.post('/cmd',{
+                param:["getDirectory"]
+            })
                 .then(function (response) {
                     console.log(response.data);
                     for(let i=0;i<response.data.children.length;i++){
                         that.data.push(response.data.children[i]);
                     }
-                })
-                .catch(function (error) {
-                    console.log(error);
-                })
-            axios.post('/cmd?cmd=getTableData&param=""')
-                .then(function (response) {
-                    console.log(response.data);
+                    axios.post('/cmd',{
+                        param:["getTableData",""]
+                    })
+                        .then(function (response) {
+                            console.log(response.data);
+                            that.tableData = response.data;
+                        })
+                        .catch(function (error) {
+                            console.log(error);
+                        })
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -251,13 +261,8 @@
             },
             openfile:function (){
                 console.log("open file");
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"open",
-                        param:"open",
-                        param:"a.txt",
-                        param:"/li554/test1",
-                    }
+                axios.post('/cmd', {
+                    param:["open","a.txt","/li554/test1",0]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -273,13 +278,8 @@
                 //将fcb传入recoverDist函数即可回收对应的磁盘块
                 //然后将该文件在目录项中删除
                 console.log("delete file");
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"delete",
-                        param:"delete",
-                        param:"a.txt",
-                        param:"/li554/test1"
-                    }
+                axios.post('/cmd', {
+                    param:["delete","a.txt","/li554/test1"]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -294,13 +294,8 @@
                 //然后选定复制目录后，确定粘贴的时候，调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
                 //要想拿到fcb,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
                 //当粘贴的时候再去执行创建，写入的工作
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"copy",
-                        param:"copy",
-                        param:"a.txt",
-                        param:"/li554/test1"
-                    }
+                axios.post('/cmd', {
+                    param:["copy","a.txt","/li554/test1"]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -311,14 +306,8 @@
             },
             pastefile:function(){
                 console.log("paste file");
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"paste",
-                        param:"paste",
-                        param:"a.txt",
-                        param:"/li554/test1",
-                        param:"this is li554"
-                    }
+                axios.post('/cmd', {
+                    param:["paste","a.txt","/li554/test1","this is li554"]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -331,14 +320,8 @@
                 //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
                 //如果当前该文件已被打开，则不允许重命名
                 console.log("rename file");
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"rename",
-                        param:"rename",
-                        param:"a.txt",
-                        param:"/li554/test1",
-                        param:"b.txt"
-                    }
+                axios.post('/cmd', {
+                    param:["rename","a.txt","/li554/test1","b.txt"]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -350,13 +333,8 @@
             showfile:function(){
                 console.log("show fileProperty");
                 //根据文件名和文件路径查找到对应的目录项和文件fcb，读取文件名和其它所有的属性的值，以json的格式返回文件属性信息
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"showProperty",
-                        param:"showProperty",
-                        param:"a.txt",
-                        param:"/li554/test1",
-                    }
+                axios.post('/cmd', {
+                    param:["showProperty","a.txt","/li554/test1"]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -367,13 +345,8 @@
             },
             createfile:function (){
                 console.log("create file");
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"create",
-                        param:"create",
-                        param:"a.txt",
-                        param:"/li554/test1"
-                    }
+                axios.post('/cmd', {
+                    param:["create","a.txt","/li554/test1"]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -384,13 +357,8 @@
             },
             mkdir:function(){
                 console.log("create directory");
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"mkdir",
-                        param:"mkdir",
-                        param:"a.txt",
-                        param:"/li554/test1"
-                    }
+                axios.post('/cmd', {
+                    param:["mkdir","a.txt","/li554/test1"]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -406,13 +374,8 @@
                 //如果子项是目录，那么递归调用rmdir函数，删除目录，删除完所有的子项时结束
                 //最后再删除该目录的表项
                 console.log("remove directory");
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"rmdir",
-                        param:"rmdir",
-                        param:"test11",
-                        param:"/li554/test1"
-                    }
+                axios.post('/cmd', {
+                    param:["rmdir","test11","/li554/test1"]
                 })
                     .then(function (response) {
                         console.log(response);
@@ -426,11 +389,8 @@
                 //准备一个数组，用于存放返回的文件项中的各项信息{name:"",path:""}
                 //通过遍历整棵目录索引树，查找是否有文件或目录名包含传入的字符串
                 //如果有，将其名字和路径添加到该数组，最后返回整个数组
-                axios.get('/cmd', {
-                    params: {
-                        cmd:"search",
-                        query:this.filename
-                    }
+                axios.post('/cmd', {
+                    param:["search",this.filename]
                 })
                 .then(function (response) {
                     console.log(response);
