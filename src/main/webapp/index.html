@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
-    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.12"></script>
-    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
-    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <link href="https://cdn.bootcss.com/element-ui/2.12.0/theme-chalk/index.css" rel="stylesheet">
+    <script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script>
+    <script src="https://cdn.staticfile.org/axios/0.18.0/axios.min.js"></script>
+    <script src="https://cdn.bootcss.com/element-ui/2.12.0/index.js"></script>
     <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
     <title>视频主页</title>
     <style>
@@ -99,6 +99,9 @@
             font-size: 14px;
             line-height: 40px;
         }
+        .text-edit{
+            width: 600px;
+        }
     </style>
 </head>
 
@@ -106,12 +109,12 @@
 <div id="app">
     <el-container class="container">
         <el-header>
-            <el-breadcrumb @click.native="handleBreadClick" separator-class="el-icon-arrow-right" v-show="!input_show" class="path_input">
+            <el-breadcrumb @click.native="handleBreadClick" separator-class="el-icon-arrow-right" v-show="!inputlist.input_show" class="path_input">
                 <el-breadcrumb-item :to="{ path: '/' }">/</el-breadcrumb-item>
-                <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }">{{path}}</el-breadcrumb-item>
+                <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }" @click.native.stop="back(path)">{{path}}</el-breadcrumb-item>
             </el-breadcrumb>
-            <el-input @blur="input_show=false;" placeholder="请输入路径" v-model="filepath" class="path_input" style="background: none;" v-show="input_show"></el-input>
-            <el-input placeholder="请输入文件名" v-model="filename" class="filename_input">
+            <el-input @blur="inputlist.input_show=false;" placeholder="请输入路径" v-model="inputlist.filepath" class="path_input" style="background: none;" v-show="inputlist.input_show"></el-input>
+            <el-input placeholder="请输入文件名" v-model="inputlist.filename" class="filename_input">
                 <el-button slot="append" icon="el-icon-search" @click.native="searchfile"></el-button>
             </el-input>
         </el-header>
@@ -120,12 +123,13 @@
                 <el-tree :data="data" :props="defaultProps" @node-click="handleNodeClick"></el-tree>
             </el-aside>
             <el-container>
-                <el-main @click.native="card_show = false;">
+                <el-main @click.native="card.card_show = false;blankcard.card_show=false;">
                     <el-table
                             :data="tableData"
                             highlight-current-row
                             @current-change="handleCurrentChange"
                             @row-contextmenu="handleContextMenuClick"
+                            @row-dblclick="handleRowClick"
                             style="width: 100%">
                         <el-table-column
                                 prop="filename"
@@ -150,34 +154,59 @@
                                 label="大小">
                         </el-table-column>
                     </el-table>
-                    <el-card class="box-card" v-show="card_show" :style="'left: '+left+';top: '+top+';'">
+                    <el-card class="card box-card" v-show="card.card_show" :style="'left: '+card.left+';top: '+card.top+';'">
                         <div class="text item" @click.stop="openfile">
-                            {{contextmenu[0]}}
+                            {{card.contextmenu[0]}}
                         </div>
                         <div class="text item" @click.stop="deletefile">
-                            {{contextmenu[1]}}
+                            {{card.contextmenu[1]}}
                         </div>
                         <div class="text item" @click.stop="copyfile">
-                            {{contextmenu[2]}}
+                            {{card.contextmenu[2]}}
                         </div>
                         <div class="text item" @click.stop="pastefile">
-                            {{contextmenu[3]}}
+                            {{card.contextmenu[3]}}
                         </div>
                         <div class="text item" @click.stop="renamefile">
-                            {{contextmenu[4]}}
+                            {{card.contextmenu[4]}}
                         </div>
                         <div class="text item" @click.stop="showfile">
-                            {{contextmenu[5]}}
+                            {{card.contextmenu[5]}}
                         </div>
                         <div class="text item" @click.stop="createfile">
-                            {{contextmenu[6]}}
+                            {{card.contextmenu[6]}}
                         </div>
                         <div class="text item" @click.stop="mkdir">
-                            {{contextmenu[7]}}
+                            {{card.contextmenu[7]}}
                         </div>
                         <div class="text item" @click.stop="rmdir">
-                            {{contextmenu[8]}}
+                            {{card.contextmenu[8]}}
                         </div>
+                    </el-card>
+                    <el-card class="blank-card box-card" v-show="blankcard.card_show" :style="'left: '+blankcard.left+';top: '+blankcard.top+';'">
+                        <div class="text item" @click.stop="pastefile">
+                            {{blankcard.contextmenu[0]}}
+                        </div>
+                        <div class="text item" @click.stop="createfile">
+                            {{blankcard.contextmenu[1]}}
+                        </div>
+                        <div class="text item" @click.stop="mkdir">
+                            {{blankcard.contextmenu[2]}}
+                        </div>
+                    </el-card>
+                    <el-card class="text-edit" v-show="textedit.card_show">
+                        <div slot="header" class="clearfix">
+                            <span>{{row.filename}}</span>
+                            <el-button style="float: right; padding: 3px 0" type="text" @click="closefile">关闭</el-button>
+                        </div>
+                        <el-input
+                                type="textarea"
+                                :autosize="{ minRows: 2,maxRows:5}"
+                                @change="handleContentChange"
+                                @blur="writefile"
+                                placeholder="请输入内容"
+                                v-model="textedit.filecontent">
+                        </el-input>
                     </el-card>
                 </el-main>
             </el-container>
@@ -194,24 +223,53 @@
                 label: 'label'
             },
             path:"",
-            filename:"",
-            paths:["src","main","java"],
-            files:["a.txt","b.txt","c.txt"],
+            paths:[],
             tableData: [{
-                "filename":"a.txt",
-                "modtime":"2018-1-12",
-                "type":"文件",
-                "size":10
+                filename:"a.txt",
+                modtime:"2018-1-12",
+                type:"文件",
+                size:10
             }],
-            card_show:false,
-            input_show:false,
-            filepath:"",
-            left:0,
-            top:0,
-            contextmenu:["打开文件","删除文件","复制","粘贴","重命名","查看属性","创建文件","创建文件夹","删除文件夹"]
+            row:{
+                filename:"",
+                modtime:"",
+                type:"",
+                size:0
+            },
+            inputlist:{
+                input_show:false,
+                filepath:"",
+                filename:""
+            },
+            card:{
+                card_show:false,
+                contextmenu:["打开文件","删除文件","复制","粘贴","重命名","查看属性","创建文件","创建文件夹","删除文件夹"],
+                left:0,
+                top:0
+            },
+            blankcard:{
+                card_show:false,
+                contextmenu:["粘贴","创建文件","创建文件夹"],
+                left:0,
+                top:0
+            },
+            textedit:{
+                uid:0,
+                card_show:false,
+                filecontent:""
+            },
+            copy:{
+                bufferid:0
+            }
+
         },
         created:function(){
             $(document).contextmenu(function(){
+                that.blankcard.card_show = true;
+                $(".blank-card").css({
+                    "left":(window.scrollX+event.x+10)+"px",
+                    "top":(window.scrollY+event.y+10)+"px"
+                })
                 return false;
             })
             //从后端获取目录数据
@@ -225,7 +283,7 @@
                         that.data.push(response.data.children[i]);
                     }
                     axios.post('/cmd',{
-                        param:["getTableData",""]
+                        param:["getTableData","/"]
                     })
                         .then(function (response) {
                             console.log(response.data);
@@ -248,41 +306,145 @@
                 this.currentRow = val;
             },
             handleBreadClick(){
-                this.input_show = true;
+                this.inputlist.input_show = true;
                 var str = this.paths.join("/");
-                this.filepath = str;
+                this.inputlist.filepath = str;
+            },
+            handleRowClick(row,column,event){
+                var that = this;
+                console.log(this.tableData);
+                console.log(row);
+                if (row.type=="文件夹"){
+                    this.paths.push(row.filename);
+                    axios.post('/cmd',{
+                        param:["cd","/"+this.paths.join("/")]
+                    })
+                        .then(function (response) {
+                            console.log(response.data);
+                            that.tableData = response.data;
+                        })
+                        .catch(function (error) {
+                            console.log(error);
+                        })
+                }
+            },
+            handleContentChange(){
+                console.log(this.textedit.filecontent)
+            },
+            writefile(){
+                var that = this;
+                axios.post('/cmd',{
+                    param:["write",this.textedit.uid,this.textedit.filecontent]
+                })
+                    .then(function (response) {
+                        var object = response.data;
+                        if (object.code==-7)
+                            that.$message('保存成功');
+                        else{
+                            this.$message(object.msg);
+                            console.log(object.msg);
+                        }
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    })
+            },
+            closefile(){
+                var that = this;
+                axios.post('/cmd',{
+                    param:["close",this.textedit.uid]
+                })
+                    .then(function (response) {
+                        console.log(response.data);
+                        that.textedit.card_show = false;
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    })
+            },
+            back:function (path){
+                console.log(path);
+                var that = this;
+                while (this.paths.pop()!=path){
+                    continue;
+                }
+                this.paths.push(path);
+                axios.post('/cmd',{
+                    param:["cd","/"+this.paths.join("/")]
+                })
+                    .then(function (response) {
+                        console.log(response.data);
+                        that.tableData = response.data;
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    })
             },
             handleContextMenuClick(row,column,event){
-                this.card_show = true;
-                $(".el-card").css({
+                event.stopPropagation();
+                this.card.card_show = true;
+                $(".card").css({
                     "left":(window.scrollX+event.x+10)+"px",
                     "top":(window.scrollY+event.y+10)+"px"
                 })
+                this.row = row;
+                return false;
             },
             openfile:function (){
                 console.log("open file");
+                var that = this;
                 axios.post('/cmd', {
-                    param:["open","a.txt","/li554/test1",0]
+                    param:["open",that.row.filename,"",3]
                 })
                     .then(function (response) {
                         console.log(response);
+                        var object = response.data;
+                        if (object.code<0){
+                            console.log(object.msg);
+                            this.$message(object.msg);
+                        }else{
+                            that.textedit.uid = object.code;
+                            axios.post('/cmd', {
+                                param:["read",object.code]
+                            })
+                                .then(function (response) {
+                                    console.log(response);
+                                    var object2 = response.data;
+                                    if (object2.code==0){
+                                        that.textedit.filecontent = object2.content;
+                                        that.textedit.card_show = true;
+                                    }else{
+                                        that.$message(object2.msg);
+                                        console.log(object2);
+                                    }
+                                })
+                                .catch(function (error) {
+                                    console.log(error);
+                                });
+                        }
                     })
                     .catch(function (error) {
                         console.log(error);
                     });
             },
             deletefile:function (){
-                //删除文件
-                //首先通过文件名和文件路径获取到对应的目录项
-                //进而需要获取到该文件的文件控制块fcb
-                //将fcb传入recoverDist函数即可回收对应的磁盘块
-                //然后将该文件在目录项中删除
+                var that = this;
                 console.log("delete file");
                 axios.post('/cmd', {
-                    param:["delete","a.txt","/li554/test1"]
+                    param:["delete",that.row.filename,""]
                 })
                     .then(function (response) {
                         console.log(response);
+                        axios.post('/cmd',{
+                            param:["getTableData",""]
+                        })
+                            .then(function (response) {
+                                console.log(response.data);
+                                that.tableData = response.data;
+                            })
+                            .catch(function (error) {
+                                console.log(error);
+                            })
                     })
                     .catch(function (error) {
                         console.log(error);
@@ -290,15 +452,24 @@
             },
             copyfile:function(){
                 console.log("copy file");
+                var that = this;
                 //复制文件其实就是拿到对应文件的fcb中的flist,调用读函数读出flist中的内容
                 //然后选定复制目录后，确定粘贴的时候，调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
                 //要想拿到fcb,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
                 //当粘贴的时候再去执行创建，写入的工作
                 axios.post('/cmd', {
-                    param:["copy","a.txt","/li554/test1"]
+                    param:["copy","a.txt",""]
                 })
                     .then(function (response) {
                         console.log(response);
+                        var object = response.data;
+                        if (object.code<0){
+                            console.log(object.msg);
+                            that.$message(object.msg);
+                        }else{
+                            that.$message("复制成功");
+                            that.copy.bufferid = object.bufferid;
+                        }
                     })
                     .catch(function (error) {
                         console.log(error);
@@ -306,11 +477,22 @@
             },
             pastefile:function(){
                 console.log("paste file");
+                var that = this;
                 axios.post('/cmd', {
-                    param:["paste","a.txt","/li554/test1","this is li554"]
+                    param:["paste","a.txt","",that.copy.bufferid]
                 })
                     .then(function (response) {
                         console.log(response);
+                        axios.post('/cmd',{
+                            param:["getTableData",""]
+                        })
+                            .then(function (response) {
+                                console.log(response.data);
+                                that.tableData = response.data;
+                            })
+                            .catch(function (error) {
+                                console.log(error);
+                            })
                     })
                     .catch(function (error) {
                         console.log(error);
@@ -320,11 +502,29 @@
                 //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
                 //如果当前该文件已被打开，则不允许重命名
                 console.log("rename file");
+                var that = this;
                 axios.post('/cmd', {
-                    param:["rename","a.txt","/li554/test1","b.txt"]
+                    param:["rename",that.row.filename,"","b.txt"]
                 })
                     .then(function (response) {
-                        console.log(response);
+                        var obj = response.data;
+                        if (obj.code!=-14){
+                            console.log(obj.msg);
+                            that.$message(obj.msg);
+                        }else{
+                            axios.post('/cmd',{
+                                param:["getTableData",""]
+                            })
+                                .then(function (response) {
+                                    console.log(response.data);
+                                    that.tableData = response.data;
+                                    that.$message("重命名成功");
+                                })
+                                .catch(function (error) {
+                                    console.log(error);
+                                })
+                        }
+
                     })
                     .catch(function (error) {
                         console.log(error);
@@ -345,11 +545,21 @@
             },
             createfile:function (){
                 console.log("create file");
+                var that = this;
                 axios.post('/cmd', {
-                    param:["create","a.txt","/li554/test1"]
+                    param:["create","a.txt",""]
                 })
                     .then(function (response) {
-                        console.log(response);
+                        axios.post('/cmd',{
+                            param:["getTableData",""]
+                        })
+                            .then(function (response) {
+                                console.log(response.data);
+                                that.tableData = response.data;
+                            })
+                            .catch(function (error) {
+                                console.log(error);
+                            })
                     })
                     .catch(function (error) {
                         console.log(error);
@@ -357,11 +567,21 @@
             },
             mkdir:function(){
                 console.log("create directory");
+                var that = this;
                 axios.post('/cmd', {
-                    param:["mkdir","a.txt","/li554/test1"]
+                    param:["mkdir","newdir",""]
                 })
                     .then(function (response) {
-                        console.log(response);
+                        axios.post('/cmd',{
+                            param:["getTableData",""]
+                        })
+                            .then(function (response) {
+                                console.log(response.data);
+                                that.tableData = response.data;
+                            })
+                            .catch(function (error) {
+                                console.log(error);
+                            })
                     })
                     .catch(function (error) {
                         console.log(error);
@@ -375,10 +595,19 @@
                 //最后再删除该目录的表项
                 console.log("remove directory");
                 axios.post('/cmd', {
-                    param:["rmdir","test11","/li554/test1"]
+                    param:["rmdir",that.row.filename,""]
                 })
                     .then(function (response) {
-                        console.log(response);
+                        axios.post('/cmd',{
+                            param:["getTableData","/"]
+                        })
+                            .then(function (response) {
+                                console.log(response.data);
+                                that.tableData = response.data;
+                            })
+                            .catch(function (error) {
+                                console.log(error);
+                            })
                     })
                     .catch(function (error) {
                         console.log(error);
@@ -389,8 +618,9 @@
                 //准备一个数组，用于存放返回的文件项中的各项信息{name:"",path:""}
                 //通过遍历整棵目录索引树，查找是否有文件或目录名包含传入的字符串
                 //如果有，将其名字和路径添加到该数组，最后返回整个数组
+                var that = this;
                 axios.post('/cmd', {
-                    param:["search",this.filename]
+                    param:["search",that.inputlist.filename]
                 })
                 .then(function (response) {
                     console.log(response);

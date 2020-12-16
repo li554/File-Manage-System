@@ -23,9 +23,11 @@ public class Command extends HttpServlet {
     private HashMap<Integer, String> buffer;
     private int id = 0;
     public PrintWriter out;
+    public boolean flag = true;
     @Override
     public void init() {
         disk = new Disk();
+        buffer = new HashMap<>();
         try {
             //创建一个用户
             createUser("li554","123456",Permission.RW_EXEC);
@@ -59,28 +61,28 @@ public class Command extends HttpServlet {
             int uid4 = open("a.txt","",Mode.READ_ONLY);
             System.out.println(read(uid4));
             close(uid4);
+            flag = false;
         }catch (IOException e){
             e.printStackTrace();
         }
     }
 
-    private void error(int n){
-//        switch (n){
-//            case Error.DUPLICATION:
-//                out.println("重名");
-//                break;
-//            case Error.DISK_OVERFLOW:
-//                out.println("磁盘已满，分配失败");
-//                break;
-//            case Error.PATH_NOT_FOUND:
-//                out.println("未找到指定路径");
-//                break;
-//            case Error.PERMISSION_DENIED:
-//                out.println("权限不足");
-//                break;
-//            case Error.USING_BY_OTHERS:
-//                out.println("文件被其他进程占用");
-//        }
+    private String error(int n){
+        switch (n){
+            case Error.DUPLICATION:
+                return "重名";
+            case Error.DISK_OVERFLOW:
+                return "磁盘已满，分配失败";
+            case Error.PATH_NOT_FOUND:
+                return "未找到指定路径";
+            case Error.PERMISSION_DENIED:
+                return "权限不足";
+            case Error.USING_BY_OTHERS:
+                return "文件被其他进程占用";
+            case Error.UNKNOWN:
+                return "未知错误";
+        }
+        return "ok";
     }
 
     private void createUser(String uname, String psw, int permission) {
@@ -99,14 +101,14 @@ public class Command extends HttpServlet {
         }
     }
 
-    private void delete(DirectoryItem file, DirectoryItem parent) {
+    private int delete(DirectoryItem file, DirectoryItem parent) {
         if (check_permission(file.permission, -1)) {
             recoverDist(file.fcb);
             parent.dirs.remove(parent);
             parent.lastModifyTime = new Date().getTime();
+            return Success.DELETE;
         } else {
-            //out.println("您没有删除当前文件的权限");
-            error(Error.PERMISSION_DENIED);
+            return Error.PERMISSION_DENIED;
         }
     }
 
@@ -187,8 +189,6 @@ public class Command extends HttpServlet {
         switch (current_user.permission) {
             case Permission.READ_ONLY:
                 if (mode != Mode.READ_ONLY) {
-                    //out.println("该用户为只读权限，不能对文件进行修改");
-                    error(Error.PERMISSION_DENIED);
                     return false;
                 }
                 break;
@@ -205,8 +205,6 @@ public class Command extends HttpServlet {
                         case Permission.RW_EXEC:
                             break;
                         default:
-                            //out.println("文件对用户为只读权限");
-                            error(Error.PERMISSION_DENIED);
                             return false;
                     }
                 } else if (mode == Mode.WRITE_APPEND || mode == Mode.WRITE_FIRST) {
@@ -220,8 +218,6 @@ public class Command extends HttpServlet {
                         case Permission.RW_EXEC:
                             break;
                         default:
-                            //out.println("文件对用户为只写权限");
-                            error(Error.PERMISSION_DENIED);
                             return false;
                     }
                 } else if (mode == Mode.READ_WRITE) {
@@ -231,8 +227,6 @@ public class Command extends HttpServlet {
                         case Permission.RW_EXEC:
                             break;
                         default:
-                            //out.println("该文件对用户并不具有可读加可写的权限");
-                            error(Error.PERMISSION_DENIED);
                             return false;
                     }
                 }
@@ -243,6 +237,9 @@ public class Command extends HttpServlet {
 
     private void cd(String path) {
         current_dir = getParent(path);
+        //应该返回一些数据
+        if (!flag)
+            getTableData(current_dir);
     }
 
     private void dir() {
@@ -252,21 +249,16 @@ public class Command extends HttpServlet {
         }
     }
 
-    private void mkdir(String name, String path) {
+    private int mkdir(String name, String path) {
         //首先检查是否重名
         DirectoryItem result = getParent(path);
         if (result == null) {
-            //out.println("未找到指定路径");
-            error(Error.PATH_NOT_FOUND);
-            return;
+            return Error.PATH_NOT_FOUND;
         }
         //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
         for (DirectoryItem item : result.dirs) {
             if (item.name.equals(name)) {
-                //发生重名
-                //out.println("创建失败，存在重名文件");
-                error(Error.DUPLICATION);
-                return;
+                return Error.DUPLICATION;
             }
         }
         DirectoryItem item = new DirectoryItem(name, Permission.RW_EXEC, Tag.DIRECTORY_TYPE);
@@ -274,14 +266,13 @@ public class Command extends HttpServlet {
         result.dirs.add(item);
         result.creatTime = new Date().getTime();
         result.lastModifyTime = result.creatTime;
+        return Success.MKDIR;
     }
 
-    private void rmdir(String name, String path) throws IOException {
+    private int rmdir(String name, String path) throws IOException {
         DirectoryItem result = getParent(path);
         if (result == null) {
-            //out.println("未找到指定路径");
-            error(Error.PATH_NOT_FOUND);
-            return;
+            return Error.PATH_NOT_FOUND;
         }
         //在获得的目录中查找对应的目录
         for (DirectoryItem item : result.dirs) {
@@ -289,26 +280,22 @@ public class Command extends HttpServlet {
                 rmdir(item);
                 result.dirs.remove(item);
                 result.lastModifyTime = new Date().getTime();
-                return;
+                return Success.RMDIR;
             }
         }
+        return Error.UNKNOWN;
     }
 
-    private void create(String name, String path, int permission) throws IOException {
+    private int create(String name, String path, int permission) throws IOException {
         //首先检查是否重名
         DirectoryItem result = getParent(path);
         if (result == null) {
-            //out.println("未找到指定路径");
-            error(Error.PATH_NOT_FOUND);
-            return;
+            return Error.PATH_NOT_FOUND;
         }
         //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
         for (DirectoryItem item : result.dirs) {
             if (item.name.equals(name)) {
-                //发生重名
-                //out.println("创建失败，存在重名文件");
-                error(Error.DUPLICATION);
-                return;
+                return Error.DUPLICATION;
             }
         }
         LinkedList<DiskBlockNode> list = new LinkedList<>();
@@ -327,42 +314,36 @@ public class Command extends HttpServlet {
             item.parent = result;
             result.dirs.add(item);
             result.lastModifyTime = fcb.creatTime;
+            return Success.CREATE;
         } else {
-            //out.println("内存已满，分配空间失败");
-            error(Error.DISK_OVERFLOW);
+            return Error.DISK_OVERFLOW;
         }
     }
 
-    private void delete(String name, String path) throws IOException {
+    private int delete(String name, String path) throws IOException {
         //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
         for (SystemOpenFile file : disk.softable) {
             if (file.filename.equals(name) && file.opencount > 0) {
-                //out.println("存在进程正在使用该文件,无法删除");
-                error(Error.USING_BY_OTHERS);
-                return;
+                return Error.USING_BY_OTHERS;
             }
         }
         DirectoryItem result = getParent(path);
         if (result == null) {
-            //out.println("未找到指定路径");
-            error(Error.PATH_NOT_FOUND);
-            return;
+            return Error.PATH_NOT_FOUND;
         }
         for (DirectoryItem item : result.dirs) {
             if (item.name.equals(name)) {
                 //没有被占用的话，判断一下用户是否有删除文件的权限
-                delete(item, result);
-                break;
+                return delete(item, result);
             }
         }
+        return Error.UNKNOWN;
     }
 
     private int open(String name, String path, int mode) throws IOException {     //传入的是一个引用对象
         DirectoryItem result = getParent(path);
         if (result == null) {
-            //out.println("未找到指定路径");
-            error(Error.PATH_NOT_FOUND);
-            return -1;
+            return Error.PATH_NOT_FOUND;
         }
         //找到所在目录后，从目录项中读取该文件的信息，首先判断是否有打开权限
         for (DirectoryItem item : result.dirs) {
@@ -371,13 +352,6 @@ public class Command extends HttpServlet {
                     //权限足够，接着检查是否当前进程已经打开了该文件
                     for (UserOpenFile uof : disk.uoftable) {
                         if (uof.filename.equals(name)) {
-                            //表示该文件已经被打开，那么需要判断一下打开模式是否是重写
-                            if (mode == Mode.WRITE_FIRST) {
-                                //如果是重写，那么先回收分配的磁盘块，然后重新根据大小赋予新的磁盘块
-                                recoverDist(item.fcb);
-                                uof.wpoint = 0;
-                                uof.mode = Mode.WRITE_FIRST;
-                            }
                             return uof.uid;
                         }
                     }
@@ -386,13 +360,6 @@ public class Command extends HttpServlet {
                     UserOpenFile userOpenFile = new UserOpenFile();
                     userOpenFile.filename = name;
                     userOpenFile.mode = mode;
-                    if (mode == Mode.WRITE_FIRST) {
-                        //如果是重写，那么先回收分配的磁盘块，然后重新根据大小赋予新的磁盘块
-                        recoverDist(item.fcb);
-                        userOpenFile.wpoint = 0;
-                    } else {
-                        userOpenFile.wpoint = item.fcb.size;
-                    }
                     userOpenFile.rpoint = 0;
                     userOpenFile.uid = disk.uoftable.size();
                     userOpenFile.sid = disk.softable.size();
@@ -409,13 +376,11 @@ public class Command extends HttpServlet {
                     //最终应该返回一个文件描述符，也就是该文件在用户进程打开文件表中的uid
                     return userOpenFile.uid;
                 } else {
-                    //out.println("您没有打开该文件的权限");
-                    error(Error.PERMISSION_DENIED);
+                    return Error.PERMISSION_DENIED;
                 }
-                break;
             }
         }
-        return -1;
+        return Error.UNKNOWN;
     }
 
     private void close(int uid) {
@@ -453,30 +418,37 @@ public class Command extends HttpServlet {
         }
     }
 
-    private String read(int uid) {
+    private JSONObject read(int uid) {
         UserOpenFile uitem = disk.uoftable.get(uid);
+        JSONObject object = new JSONObject();
+        object.put("code",0);
+        object.put("content","");
         if (uitem.mode == Mode.WRITE_FIRST || uitem.mode == Mode.WRITE_APPEND) {
-            //out.println("当前为只写模式");
-            error(Error.PERMISSION_DENIED);
-            return null;
+            object.replace("code",String.valueOf(Error.PERMISSION_DENIED));
         } else {
             SystemOpenFile sitem = disk.softable.get(uitem.sid);
             StringBuilder content = new StringBuilder();
             for (DiskBlockNode node : sitem.fitem.fcb.flist) {
                 content.append(new String(node.content));
             }
-            return content.toString();
+            object.replace("content",content.toString());
         }
+        return object;
     }
 
-    private void write(int uid, String content) {
+    private int write(int uid, String content) {
         UserOpenFile uitem = disk.uoftable.get(uid);
         if (uitem.mode == Mode.READ_ONLY) {
-            //out.println("当前为只读模式模式");
-            error(Error.PERMISSION_DENIED);
-            return;
+            return Error.PERMISSION_DENIED;
         } else {
             SystemOpenFile sitem = disk.softable.get(uitem.sid);
+            if (uitem.mode == Mode.WRITE_FIRST || uitem.mode==Mode.READ_WRITE) {
+                //如果是重写，那么先回收分配的磁盘块，然后重新根据大小赋予新的磁盘块
+                recoverDist(sitem.fitem.fcb);
+                uitem.wpoint = 0;
+            }else{
+                uitem.wpoint = sitem.fitem.fcb.size;
+            }
             //现在已经获取到了该文件，通过前端传来的的文本值，我们将该值写入文件
             //中文字符占两个字节，其他字符为1个字节
             byte[] bytes = content.getBytes();
@@ -499,9 +471,7 @@ public class Command extends HttpServlet {
             if (bytes.length > 0) {
                 //分配剩余的字节数据所需的磁盘块
                 if (!requestDist(sitem.fitem.fcb.flist, bytes.length)) {
-                    //out.println("存储空间已满，分配失败");
-                    error(Error.DISK_OVERFLOW);
-                    return;
+                    return Error.DISK_OVERFLOW;
                 }
                 //分配了空间之后，开始写入剩余数据
                 int i = 0;
@@ -529,48 +499,60 @@ public class Command extends HttpServlet {
                 }
             }
         }
+        return Success.WRITE;
     }
 
-    synchronized private void copy(String name, String path) throws IOException {
+    synchronized private JSONObject copy(String name, String path) throws IOException {
         //复制文件其实就是拿到对应文件的fcb中的flist,调用读函数读出flist中的内容
         //然后选定复制目录后，确定粘贴的时候，调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
         //要想拿到fcb,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
         //当粘贴的时候再去执行创建，写入的工作
         int uid = open(name, path, Mode.READ_ONLY);
-        String content = read(uid);
+        JSONObject object = read(uid);
+        object.put("bufferid",buffer.size());
+        if (object.getIntValue("code")>=0)
+            buffer.put(id++, object.getString("content"));
         close(uid);
-        System.out.println(content);
-        out.println(buffer.size());
-        buffer.put(id++, content);
+        return object;
     }
 
-    private void paste(String name, String path, int id) throws IOException {
+    private int paste(String name, String path, int id) throws IOException {
         //调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
-        create(name, path, Permission.RW_EXEC);
+        int code1,code2;
+        code1 = create(name, path, Permission.RW_EXEC);
         int uid = open(name, path, Mode.WRITE_FIRST);
-        write(uid, buffer.get(id));
+        code2 = write(uid, buffer.get(id));
         close(uid);
         buffer.remove(id);
-    }
-
-    private void rename(String name, String path, String newname) throws IOException {
-        //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
-        DirectoryItem result = getParent(path);
-        for (DirectoryItem item : result.dirs) {
-            if (item.name.equals(name)) {
-                //如果当前该文件已被打开，则不允许重命名
-                if (item.fcb.usecount > 0) {
-                    System.out.println("文件占用中，不允许重命名");
-                    //out.println("文件占用中，不允许重命名");
-                    error(Error.USING_BY_OTHERS);
-                    return;
-                }
-                item.name = newname;
-                return;
-            }
+        if (code1==Success.CREATE&&code2==Success.WRITE){
+            return Success.PASTE;
+        }else{
+            return Error.UNKNOWN;
         }
     }
 
+    private int rename(String name, String path, String newname) throws IOException {
+        //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
+        //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
+        for (SystemOpenFile file : disk.softable) {
+            if (file.filename.equals(name) && file.opencount > 0) {
+                return Error.USING_BY_OTHERS;
+            }
+        }
+        DirectoryItem result = getParent(path);
+        for (DirectoryItem item : result.dirs) {
+            if (item.name.equals(newname)) {
+                return Error.DUPLICATION;
+            }
+        }
+        for (DirectoryItem item : result.dirs) {
+            if (item.name.equals(name)) {
+                item.name = newname;
+                return Success.RENAME;
+            }
+        }
+        return Error.UNKNOWN;
+    }
     /*
     public static void main(String[] args) throws IOException {
         Command command = new Command();
@@ -666,38 +648,57 @@ public class Command extends HttpServlet {
             case "mkdir": {
                 String name = a[1];
                 String path = a[2];
-                mkdir(name, path);
+                int code = mkdir(name, path);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "rmdir": {
                 String name = a[1];
                 String path = a[2];
-                rmdir(name, path);
+                int code = rmdir(name, path);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "cd": {
-                String path = a[0];
+                String path = a[1];
                 cd(path);
             }
+            break;
             case "create": {
                 String name = a[1];
                 String path = a[2];
-                create(name, path, Permission.RW_EXEC);
+                int code = create(name, path, Permission.RW_EXEC);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "delete": {
                 String name = a[1];
                 String path = a[2];
-                delete(name, path);
+                int code = delete(name, path);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "open": {
                 String name = a[1];
                 String path = a[2];
                 int mode = Integer.parseInt(a[3]);
-                int uid = open(name, path, mode);
-                System.out.println("当前打开文件的uid为:" + uid + "\n请在操作该文件时输入该uid");
-                //out.println(uid);
+                int code = open(name, path, mode);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "close": {
@@ -707,33 +708,52 @@ public class Command extends HttpServlet {
             break;
             case "read": {
                 int uid = Integer.parseInt(a[1]);
-                System.out.println(read(uid));
+                JSONObject object = read(uid);
+                int code = object.getIntValue("code");
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "write": {
                 int uid = Integer.parseInt(a[1]);
                 String content = a[2];
-                write(uid, content);
+                System.out.println(content);
+                int code = write(uid, content);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "copy": {
                 String name = a[1];
                 String path = a[2];
-                copy(name, path);
+                JSONObject object = copy(name, path);
+                int code = object.getIntValue("code");
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "paste": {
                 String name = a[1];
                 String path = a[2];
-                int id = Integer.parseInt(a[2]);
-                paste(name, path, id);
+                int id = Integer.parseInt(a[3]);
+                int code = paste(name, path, id);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             case "rename": {
                 String name = a[1];
                 String path = a[2];
                 String newname = a[3];
-                rename(name, path, newname);
+                int code = rename(name, path, newname);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                object.put("msg",error(code));
+                out.println(object.toJSONString());
             }
             break;
             //后面是与前端数据显示相关的函数
@@ -745,6 +765,7 @@ public class Command extends HttpServlet {
                 DirectoryItem root = getParent(a[1]);
                 getTableData(root);
             }
+            break;
         }
     }
 
@@ -788,7 +809,6 @@ public class Command extends HttpServlet {
     public String[] toStringArray(JSONArray array) {
         if(array==null)
             return null;
-
         String[] arr=new String[array.size()];
         for(int i=0; i<arr.length; i++) {
             arr[i]=array.getString(i);
