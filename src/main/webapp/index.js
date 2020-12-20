@@ -7,23 +7,17 @@ var app = new Vue({
             label: 'label'
         },
         path: "",
-        paths: [],
+        paths: ["/"],
         tableData: [{
             filename: "a.txt",
             modtime: "2018-1-12",
             type: "文件",
             size: 10
         }],
-        row: {
-            filename: "",
-            modtime: "",
-            type: "",
-            size: 0
-        },
         inputlist: {
             input_show: false,
             filepath: "",
-            filename: ""
+            filename:""
         },
         card: {
             card_show: false,
@@ -37,14 +31,25 @@ var app = new Vue({
             left: 0,
             top: 0
         },
-        textedit: {
-            uid: 0,
-            card_show: false,
-            filecontent: ""
-        },
         copy: {
             bufferid: 0
-        }
+        },
+        Success: {
+            WRITE: -7,
+            DELETE: -8,
+            CREATE: -9,
+            READ: -10,
+            RMDIR: -11,
+            MKDIR: -12,
+            PASTE: -13,
+            RENAME: -14
+        },
+        tab:{
+            tabShow:false,
+        },
+        editableTabsValue: "",
+        editableTabs: [],
+        tempfilename:"",
     },
     created: function () {
         var that = this;
@@ -69,21 +74,11 @@ var app = new Vue({
                 for (let i = 0; i < response.data.children.length; i++) {
                     that.data.push(response.data.children[i]);
                 }
-                axios.post('/cmd', {
-                    param: ["getTableData", "/"]
-                })
-                    .then(function (response) {
-                        console.log(response.data);
-                        that.tableData = response.data;
-                    })
-                    .catch(function (error) {
-                        console.log(error);
-                    })
+                that.getTableData("/");
             })
             .catch(function (error) {
                 console.log(error);
             })
-        //根据目录查询对应的数据
     },
     methods: {
         handleNodeClick(data) {
@@ -115,20 +110,17 @@ var app = new Vue({
                     })
             }
         },
-        handleContentChange() {
-            console.log(this.textedit.filecontent)
-        },
-        writefile() {
+        writefile(uid,content) {
             var that = this;
             axios.post('/cmd', {
-                param: ["write", this.textedit.uid, this.textedit.filecontent]
+                param: ["write",uid,content]
             })
                 .then(function (response) {
                     var object = response.data;
-                    if (object.code == -7)
+                    if (object.code == that.Success.WRITE)
                         that.$message('保存成功');
                     else {
-                        this.$message(object.msg);
+                        that.$message(object.msg);
                         console.log(object.msg);
                     }
                 })
@@ -136,14 +128,13 @@ var app = new Vue({
                     console.log(error);
                 })
         },
-        closefile() {
+        closefile(uid) {
             var that = this;
             axios.post('/cmd', {
-                param: ["close", this.textedit.uid]
+                param: ["close",uid]
             })
                 .then(function (response) {
                     console.log(response.data);
-                    that.textedit.card_show = false;
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -174,22 +165,21 @@ var app = new Vue({
                 "left": (window.scrollX + event.x + 10) + "px",
                 "top": (window.scrollY + event.y + 10) + "px"
             })
-            this.row = row;
+            this.tempfilename = row.filename;
         },
         openfile: function () {
             console.log("open file");
             var that = this;
             axios.post('/cmd', {
-                param: ["open", that.row.filename, "", 3]
+                param: ["open", that.tempfilename, "", 3]
             })
                 .then(function (response) {
                     console.log(response);
                     var object = response.data;
                     if (object.code < 0) {
                         console.log(object.msg);
-                        this.$message(object.msg);
+                        that.$message(object.msg);
                     } else {
-                        that.textedit.uid = object.code;
                         axios.post('/cmd', {
                             param: ["read", object.code]
                         })
@@ -197,8 +187,12 @@ var app = new Vue({
                                 console.log(response);
                                 var object2 = response.data;
                                 if (object2.code == 0) {
-                                    that.textedit.filecontent = object2.content;
-                                    that.textedit.card_show = true;
+                                    that.addTab({
+                                        uid: object.code+"",
+                                        filename: that.tempfilename,
+                                        filecontent: object2.content
+                                    });
+                                    that.tab.tabShow = true;
                                 } else {
                                     that.$message(object2.msg);
                                     console.log(object2);
@@ -217,20 +211,11 @@ var app = new Vue({
             var that = this;
             console.log("delete file");
             axios.post('/cmd', {
-                param: ["delete", that.row.filename, ""]
+                param: ["delete", that.tempfilename, ""]
             })
                 .then(function (response) {
                     console.log(response);
-                    axios.post('/cmd', {
-                        param: ["getTableData", ""]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    that.getTableData("");
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -244,7 +229,7 @@ var app = new Vue({
             //要想拿到fcb,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
             //当粘贴的时候再去执行创建，写入的工作
             axios.post('/cmd', {
-                param: ["copy", "a.txt", ""]
+                param: ["copy", that.tempfilename, ""]
             })
                 .then(function (response) {
                     console.log(response);
@@ -265,20 +250,11 @@ var app = new Vue({
             console.log("paste file");
             var that = this;
             axios.post('/cmd', {
-                param: ["paste", "a.txt", "", that.copy.bufferid]
+                param: ["paste", that.tempfilename, "", that.copy.bufferid]
             })
                 .then(function (response) {
                     console.log(response);
-                    axios.post('/cmd', {
-                        param: ["getTableData", ""]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    that.getTableData("");
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -290,7 +266,7 @@ var app = new Vue({
             console.log("rename file");
             var that = this;
             axios.post('/cmd', {
-                param: ["rename", that.row.filename, "", "b.txt"]
+                param: ["rename", that.tempfilename, "", "b.txt"]
             })
                 .then(function (response) {
                     var obj = response.data;
@@ -298,19 +274,8 @@ var app = new Vue({
                         console.log(obj.msg);
                         that.$message(obj.msg);
                     } else {
-                        axios.post('/cmd', {
-                            param: ["getTableData", ""]
-                        })
-                            .then(function (response) {
-                                console.log(response.data);
-                                that.tableData = response.data;
-                                that.$message("重命名成功");
-                            })
-                            .catch(function (error) {
-                                console.log(error);
-                            })
+                        that.getTableData("");
                     }
-
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -320,7 +285,7 @@ var app = new Vue({
             console.log("show fileProperty");
             //根据文件名和文件路径查找到对应的目录项和文件fcb，读取文件名和其它所有的属性的值，以json的格式返回文件属性信息
             axios.post('/cmd', {
-                param: ["showProperty", "a.txt", "/li554/test1"]
+                param: ["showProperty", that.tempfilename, "/li554/test1"]
             })
                 .then(function (response) {
                     console.log(response);
@@ -336,16 +301,13 @@ var app = new Vue({
                 param: ["create", "a.txt", ""]
             })
                 .then(function (response) {
-                    axios.post('/cmd', {
-                        param: ["getTableData", ""]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    var object = response.data;
+                    if (object.code == that.Success.CREATE)
+                        that.getTableData("");
+                    else {
+                        that.$message(object.msg);
+                        console.log(object.msg);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -358,16 +320,13 @@ var app = new Vue({
                 param: ["mkdir", "newdir", ""]
             })
                 .then(function (response) {
-                    axios.post('/cmd', {
-                        param: ["getTableData", ""]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    var object = response.data;
+                    if (object.code == that.Success.MKDIR)
+                        that.getTableData("");
+                    else {
+                        that.$message(object.msg);
+                        console.log(object.msg);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -379,41 +338,80 @@ var app = new Vue({
             //从目录项中找到所有的子项，如果子项是文件，调用删除文件的函数，
             //如果子项是目录，那么递归调用rmdir函数，删除目录，删除完所有的子项时结束
             //最后再删除该目录的表项
+            var that = this;
             console.log("remove directory");
             axios.post('/cmd', {
-                param: ["rmdir", that.row.filename, ""]
+                param: ["rmdir", tthat.tempfilename, ""]
             })
                 .then(function (response) {
-                    axios.post('/cmd', {
-                        param: ["getTableData", "/"]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    var object = response.data;
+                    if (object.code == that.Success.RMDIR)
+                        that.getTableData("");
+                    else {
+                        that.$message(object.msg);
+                        console.log(object.msg);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
                 });
         },
-        searchfile: function () {
+        getTableData: function (path) {
+            var that = this;
+            axios.post('/cmd', {
+                param: ["getTableData", path]
+            })
+                .then(function (response) {
+                    console.log(response.data);
+                    that.tableData = response.data;
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
+        },
+        searchfile: function (queryString, cb) {
             //搜索
             //准备一个数组，用于存放返回的文件项中的各项信息{name:"",path:""}
             //通过遍历整棵目录索引树，查找是否有文件或目录名包含传入的字符串
             //如果有，将其名字和路径添加到该数组，最后返回整个数组
             var that = this;
+            if (!queryString) return;
             axios.post('/cmd', {
-                param: ["search", that.inputlist.filename]
+                param: ["getSearchData", queryString,0]
             })
                 .then(function (response) {
-                    console.log(response);
+                    console.log(response.data);
+                    var results = response.data;
+                    // 调用 callback 返回建议列表的数据
+                    cb(results);
                 })
                 .catch(function (error) {
                     console.log(error);
                 });
-        }
+        },
+        addTab(target) {
+            console.log(target);
+            this.editableTabs.push(target);
+            this.editableTabsValue = target.uid;
+        },
+        removeTab(targetName) {
+            let tabs = this.editableTabs;
+            let activeName = this.editableTabsValue;
+            this.closefile(targetName);
+            if (activeName === targetName) {
+                tabs.forEach((tab, index) => {
+                    if (tab.uid === targetName) {
+                        let nextTab = tabs[index + 1] || tabs[index - 1];
+                        if (nextTab) {
+                            activeName = nextTab.uid;
+                        }else{
+                            this.tab.tabShow = false;
+                        }
+                    }
+                });
+            }
+            this.editableTabsValue = activeName;
+            this.editableTabs = tabs.filter(tab => tab.uid !== targetName);
+        },
     }
 });

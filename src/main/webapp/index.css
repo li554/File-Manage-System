@@ -72,6 +72,7 @@ ol{
 }
 .el-card{
     position: absolute;
+    z-index: 2;
 }
 .el-card__body{
     padding: 10px;
@@ -88,5 +89,29 @@ ol{
     line-height: 40px;
 }
 .text-edit{
-    width: 600px;
+    width: 100%;
+    height: 100%;
+}
+.text-edit textarea{
+    min-height: 54px;
+    height: 325px;
+    border: none;
+    overflow: hidden;
+    margin-top: 0px;
+    margin-bottom: 0px;
+}
+.el-tabs{
+    position: absolute;
+    width: 800px;
+    height: 400px;
+    background: white;
+    z-index: 1;
+}
+.el-tabs .el-tabs__header{
+    margin: 0;
+}
+.el-tabs .el-tabs__content {
+    overflow: hidden;
+    position: relative;
+    height: 400px;
 }

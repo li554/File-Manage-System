@@ -9,11 +9,13 @@ import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.xml.crypto.Data;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.io.UnsupportedEncodingException;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @WebServlet(name = "cmd", urlPatterns = {"/cmd"})
 public class Command extends HttpServlet {
@@ -44,21 +46,21 @@ public class Command extends HttpServlet {
             //试试在test11文件夹下创建一个文件
             create("a.txt","",Permission.RW_EXEC);
             //试试以覆盖写的方式打开一个文件
-            int uid = open("a.txt","",Mode.WRITE_FIRST);
+            long uid = open("a.txt","",Mode.WRITE_FIRST);
             //试试向文件a.txt写入一段字符串
             write(uid,"hello world");
             //试试关闭一个文件
             close(uid);
             //重新以读的方式打开a.txt,并读出数据
-            int uid2 = open("a.txt","",Mode.READ_ONLY);
+            long uid2 = open("a.txt","",Mode.READ_ONLY);
             System.out.println(read(uid2));
             close(uid2);
             //再次以添加写的方式打开a.txt
-            int uid3 = open("a.txt","",Mode.WRITE_APPEND);
+            long uid3 = open("a.txt","",Mode.WRITE_APPEND);
             write(uid3,"you are very beautiful");
             close(uid3);
             //再次读一下a.txt文件
-            int uid4 = open("a.txt","",Mode.READ_ONLY);
+            long uid4 = open("a.txt","",Mode.READ_ONLY);
             System.out.println(read(uid4));
             close(uid4);
             flag = false;
@@ -103,7 +105,7 @@ public class Command extends HttpServlet {
 
     private int delete(DirectoryItem file, DirectoryItem parent) {
         if (check_permission(file.permission, -1)) {
-            recoverDist(file.fcb);
+            recoverDist(disk.fcbList.get(file.fcbid));
             parent.dirs.remove(parent);
             parent.lastModifyTime = new Date().getTime();
             return Success.DELETE;
@@ -309,8 +311,9 @@ public class Command extends HttpServlet {
             fcb.type = FileType.USER_FILE;
             fcb.usecount = 0;
             fcb.permission = permission;
+            disk.fcbList.put(fcb.creatTime,fcb);
             DirectoryItem item = new DirectoryItem(name, permission, Tag.FILE_TYPE);
-            item.fcb = fcb;
+            item.fcbid = fcb.creatTime;
             item.parent = result;
             result.dirs.add(item);
             result.lastModifyTime = fcb.creatTime;
@@ -322,7 +325,7 @@ public class Command extends HttpServlet {
 
     private int delete(String name, String path) throws IOException {
         //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
-        for (SystemOpenFile file : disk.softable) {
+        for (SystemOpenFile file : disk.softable.values()) {
             if (file.filename.equals(name) && file.opencount > 0) {
                 return Error.USING_BY_OTHERS;
             }
@@ -340,7 +343,7 @@ public class Command extends HttpServlet {
         return Error.UNKNOWN;
     }
 
-    private int open(String name, String path, int mode) throws IOException {     //传入的是一个引用对象
+    private long open(String name, String path, int mode) throws IOException {     //传入的是一个引用对象
         DirectoryItem result = getParent(path);
         if (result == null) {
             return Error.PATH_NOT_FOUND;
@@ -350,29 +353,28 @@ public class Command extends HttpServlet {
             if (item.name.equals(name)) {
                 if (check_permission(item.permission, mode)) {
                     //权限足够，接着检查是否当前进程已经打开了该文件
-                    for (UserOpenFile uof : disk.uoftable) {
+                    for (UserOpenFile uof : disk.uoftable.values()) {
                         if (uof.filename.equals(name)) {
                             return uof.uid;
                         }
                     }
                     //没有打开，那么将该文件的相关信息填入到用户进程打开文件表和系统进程打开文件表，同时将文件的使用计数增加1
-                    item.fcb.usecount++;
+                    disk.fcbList.get(item.fcbid).usecount++;
                     UserOpenFile userOpenFile = new UserOpenFile();
                     userOpenFile.filename = name;
                     userOpenFile.mode = mode;
                     userOpenFile.rpoint = 0;
-                    userOpenFile.uid = disk.uoftable.size();
-                    userOpenFile.sid = disk.softable.size();
-                    disk.uoftable.add(userOpenFile);
-
+                    userOpenFile.uid = new Date().getTime();
+                    userOpenFile.sid = userOpenFile.uid;
+                    disk.uoftable.put(userOpenFile.uid,userOpenFile);
                     SystemOpenFile systemOpenFile = new SystemOpenFile();
-                    systemOpenFile.sid = disk.softable.size();
+                    systemOpenFile.sid = userOpenFile.uid;
                     systemOpenFile.filename = name;
                     //打开计数器增加 1
                     systemOpenFile.opencount += 1;
                     //将该文件的目录项指针存在系统打开文件表中
                     systemOpenFile.fitem = item;
-                    disk.softable.add(systemOpenFile);
+                    disk.softable.put(systemOpenFile.sid,systemOpenFile);
                     //最终应该返回一个文件描述符，也就是该文件在用户进程打开文件表中的uid
                     return userOpenFile.uid;
                 } else {
@@ -383,34 +385,16 @@ public class Command extends HttpServlet {
         return Error.UNKNOWN;
     }
 
-    private void close(int uid) {
+    private void close(long uid) {
         //关闭文件,需要提供一个文件描述符,系统在用户进程中的打开文件表找到对应文件，然后删除该文件项
         //并且根据获得的sid查找系统打开文件表，如果系统打开文件表中对应表项的打开计数器的值>1那么-1，否则，删除表项
         try {
             UserOpenFile uitem = disk.uoftable.get(uid);
             SystemOpenFile sitem = disk.softable.get(uitem.sid);
-            //将文件的使用计数-1
-            sitem.fitem.fcb.usecount--;
-            //每关闭一个文件，都需要对所有的文件重新编号
-            for (UserOpenFile item : disk.uoftable) {
-                if (item.uid > uid) {
-                    item.uid--;
-                }
-            }
             disk.uoftable.remove(uid);
             if (sitem.opencount > 1) {
                 sitem.opencount--;
             } else {
-                for (UserOpenFile item : disk.uoftable) {
-                    if (item.sid > uitem.sid) {
-                        item.sid--;
-                    }
-                }
-                for (SystemOpenFile item : disk.softable) {
-                    if (item.sid > uitem.sid) {
-                        item.sid--;
-                    }
-                }
                 disk.softable.remove(sitem.sid);
             }
         } catch (IndexOutOfBoundsException e) {
@@ -418,7 +402,7 @@ public class Command extends HttpServlet {
         }
     }
 
-    private JSONObject read(int uid) {
+    private JSONObject read(long uid) throws UnsupportedEncodingException {
         UserOpenFile uitem = disk.uoftable.get(uid);
         JSONObject object = new JSONObject();
         object.put("code",0);
@@ -428,15 +412,20 @@ public class Command extends HttpServlet {
         } else {
             SystemOpenFile sitem = disk.softable.get(uitem.sid);
             StringBuilder content = new StringBuilder();
-            for (DiskBlockNode node : sitem.fitem.fcb.flist) {
-                content.append(new String(node.content));
+            for (DiskBlockNode node : disk.fcbList.get(sitem.fitem.fcbid).flist) {
+                String str = new String(node.content);
+                Pattern pattern = Pattern.compile("([^\u0000]*)");
+                Matcher matcher = pattern.matcher(str);
+                if(matcher.find(0)){
+                    content.append(new String(matcher.group(1).getBytes("utf-8")));
+                }
             }
             object.replace("content",content.toString());
         }
         return object;
     }
 
-    private int write(int uid, String content) {
+    private int write(long uid, String content) {
         UserOpenFile uitem = disk.uoftable.get(uid);
         if (uitem.mode == Mode.READ_ONLY) {
             return Error.PERMISSION_DENIED;
@@ -444,40 +433,50 @@ public class Command extends HttpServlet {
             SystemOpenFile sitem = disk.softable.get(uitem.sid);
             if (uitem.mode == Mode.WRITE_FIRST || uitem.mode==Mode.READ_WRITE) {
                 //如果是重写，那么先回收分配的磁盘块，然后重新根据大小赋予新的磁盘块
-                recoverDist(sitem.fitem.fcb);
+                recoverDist(disk.fcbList.get(sitem.fitem.fcbid));
                 uitem.wpoint = 0;
             }else{
-                uitem.wpoint = sitem.fitem.fcb.size;
+                uitem.wpoint = disk.fcbList.get(sitem.fitem.fcbid).size;
             }
             //现在已经获取到了该文件，通过前端传来的的文本值，我们将该值写入文件
             //中文字符占两个字节，其他字符为1个字节
             byte[] bytes = content.getBytes();
             //r为0表示所有分配的磁盘块都刚好占满
             int r = uitem.wpoint % Disk.MAXDISKBLOCK;
-            if (r != 0) {
-                //r表示最后一个磁盘块中已经写入数据的大小，如果不为0，我们还需向该磁盘块写入maxdiskblock-r的字节数据才能占满它
-                DiskBlockNode node = sitem.fitem.fcb.flist.getLast();
-                for (int i = 0; i < Disk.MAXDISKBLOCK - r && i < bytes.length; i++) {
-                    node.content[r + i] = bytes[i];
-                    //修改读写指针的数值
-                    uitem.wpoint++;
+            //start表示在分配给该文件的磁盘块里面第一个没写入数据的磁盘块的下标
+            int start = uitem.wpoint / Disk.MAXDISKBLOCK;
+            if (r != 0||start<disk.fcbList.get(sitem.fitem.fcbid).flist.size()-1)
+            {
+                int k = 0;
+                for (int j=start;j<disk.fcbList.get(sitem.fitem.fcbid).flist.size();j++){
+                    DiskBlockNode node = disk.fcbList.get(sitem.fitem.fcbid).flist.get(j);
+                    if (j==start){
+                        for (int i = 0; i < node.maxlength - r && k < bytes.length; i++) {
+                            node.content[r + i] = bytes[k++];
+                            //修改读写指针的数值
+                            uitem.wpoint++;
+                        }
+                    }else{
+                        for (int i=0;i< node.maxlength && k< bytes.length;i++){
+                            node.content[i] = bytes[k++];
+                            uitem.wpoint++;
+                        }
+                    }
                 }
                 //去掉bytes数组的已经写入的部分数据
-                if (Disk.MAXDISKBLOCK - r < bytes.length)
-                    bytes = Arrays.copyOfRange(bytes, Disk.MAXDISKBLOCK - r, bytes.length);
+                if (k < bytes.length)
+                    bytes = Arrays.copyOfRange(bytes, k, bytes.length);
                 else
                     bytes = new byte[]{};
             }
             if (bytes.length > 0) {
                 //分配剩余的字节数据所需的磁盘块
-                if (!requestDist(sitem.fitem.fcb.flist, bytes.length)) {
+                if (!requestDist(disk.fcbList.get(sitem.fitem.fcbid).flist, bytes.length)) {
                     return Error.DISK_OVERFLOW;
                 }
                 //分配了空间之后，开始写入剩余数据
                 int i = 0;
-                //start表示在分配给该文件的磁盘块里面第一个没写入数据的磁盘块的下标
-                int start = uitem.wpoint / Disk.MAXDISKBLOCK;
-                for (DiskBlockNode node : sitem.fitem.fcb.flist) {
+                for (DiskBlockNode node : disk.fcbList.get(sitem.fitem.fcbid).flist) {
                     if (i >= start) {
                         node.content = Arrays.copyOfRange(bytes, (i - start) * node.maxlength, (i - start + 1) * node.maxlength);
                     }
@@ -486,15 +485,15 @@ public class Command extends HttpServlet {
                 //修改读写指针
                 uitem.wpoint += bytes.length;
                 //修改父目录的size
-                sitem.fitem.parent.size+=bytes.length-sitem.fitem.fcb.size;
+                sitem.fitem.parent.size+=bytes.length-disk.fcbList.get(sitem.fitem.fcbid).size;
                 //修改文件的size为bytes.length
-                sitem.fitem.fcb.size = bytes.length;
+                disk.fcbList.get(sitem.fitem.fcbid).size = bytes.length;
                 //修改文件的修改时间
-                sitem.fitem.fcb.lastModifyTime = new Date().getTime();
+                disk.fcbList.get(sitem.fitem.fcbid).lastModifyTime = new Date().getTime();
                 //修改目录的修改时间
                 DirectoryItem item = sitem.fitem.parent;
                 while (item!=null){
-                   item.lastModifyTime = sitem.fitem.fcb.lastModifyTime;
+                   item.lastModifyTime = disk.fcbList.get(sitem.fitem.fcbid).lastModifyTime;
                    item = item.parent;
                 }
             }
@@ -507,7 +506,7 @@ public class Command extends HttpServlet {
         //然后选定复制目录后，确定粘贴的时候，调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
         //要想拿到fcb,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
         //当粘贴的时候再去执行创建，写入的工作
-        int uid = open(name, path, Mode.READ_ONLY);
+        long uid = open(name, path, Mode.READ_ONLY);
         JSONObject object = read(uid);
         object.put("bufferid",buffer.size());
         if (object.getIntValue("code")>=0)
@@ -520,7 +519,7 @@ public class Command extends HttpServlet {
         //调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
         int code1,code2;
         code1 = create(name, path, Permission.RW_EXEC);
-        int uid = open(name, path, Mode.WRITE_FIRST);
+        long uid = open(name, path, Mode.WRITE_FIRST);
         code2 = write(uid, buffer.get(id));
         close(uid);
         buffer.remove(id);
@@ -531,15 +530,45 @@ public class Command extends HttpServlet {
         }
     }
 
+    private void search(JSONArray array,String pattern,String path,DirectoryItem root) {
+        for (DirectoryItem item : root.dirs) {
+            if (Pattern.matches(pattern, item.name)) {
+                JSONObject object = new JSONObject();
+                object.put("value",item.name+"   "+path);
+                object.put("name",item.name);
+                object.put("type",item.tag==Tag.FILE_TYPE?"文件":"文件夹");
+                object.put("path",path);
+                array.add(object);
+            }
+            if (item.dirs!=null)
+                search(array, pattern, path+"/"+item.name, item);
+        }
+    }
+
+    private String getSearchData(String q,int mode) throws IOException {
+        //层序遍历
+        //确定全局搜索还是当前文件夹
+        //全局搜索
+        String pattern = ".*"+q+".*";
+        JSONArray array = new JSONArray();
+        String path = "";
+        if (mode==0){
+            search(array,pattern,path,disk.sroot);
+        }else{
+            search(array,pattern,path,current_dir);
+        }
+        return array.toJSONString();
+    }
+
     private int rename(String name, String path, String newname) throws IOException {
         //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
         //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
-        for (SystemOpenFile file : disk.softable) {
-            if (file.filename.equals(name) && file.opencount > 0) {
+        DirectoryItem result = getParent(path);
+        for (SystemOpenFile file : disk.softable.values()) {
+            if (file.filename.equals(name) && file.fitem.parent==result) {
                 return Error.USING_BY_OTHERS;
             }
         }
-        DirectoryItem result = getParent(path);
         for (DirectoryItem item : result.dirs) {
             if (item.name.equals(newname)) {
                 return Error.DUPLICATION;
@@ -694,20 +723,20 @@ public class Command extends HttpServlet {
                 String name = a[1];
                 String path = a[2];
                 int mode = Integer.parseInt(a[3]);
-                int code = open(name, path, mode);
+                long code = open(name, path, mode);
                 JSONObject object = new JSONObject();
                 object.put("code",code);
-                object.put("msg",error(code));
+                object.put("msg",error((int) code));
                 out.println(object.toJSONString());
             }
             break;
             case "close": {
-                int uid = Integer.parseInt(a[1]);
+                Long uid = Long.parseLong(a[1]);
                 close(uid);
             }
             break;
             case "read": {
-                int uid = Integer.parseInt(a[1]);
+                Long uid = Long.parseLong(a[1]);
                 JSONObject object = read(uid);
                 int code = object.getIntValue("code");
                 object.put("msg",error(code));
@@ -715,7 +744,7 @@ public class Command extends HttpServlet {
             }
             break;
             case "write": {
-                int uid = Integer.parseInt(a[1]);
+                Long uid = Long.parseLong(a[1]);
                 String content = a[2];
                 System.out.println(content);
                 int code = write(uid, content);
@@ -766,6 +795,11 @@ public class Command extends HttpServlet {
                 getTableData(root);
             }
             break;
+            case "getSearchData":{
+                String q = a[1];
+                int mode = Integer.parseInt(a[2]);
+                out.println(getSearchData(q,mode));
+            }
         }
     }
 
@@ -797,15 +831,16 @@ public class Command extends HttpServlet {
                     object.put("type","文件夹");
                     object.put("size",item.size);
                 }else if (item.tag==Tag.FILE_TYPE){
-                    object.put("modtime",item.fcb.lastModifyTime);
+                    object.put("modtime",disk.fcbList.get(item.fcbid).lastModifyTime);
                     object.put("type","文件");
-                    object.put("size",item.fcb.size);
+                    object.put("size",disk.fcbList.get(item.fcbid).size);
                 }
                 array.add(0,object);
             }
         }
         out.println(array.toJSONString());
     }
+
     public String[] toStringArray(JSONArray array) {
         if(array==null)
             return null;
@@ -815,6 +850,7 @@ public class Command extends HttpServlet {
         }
         return arr;
     }
+
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setContentType("text/html;charset=utf-8");

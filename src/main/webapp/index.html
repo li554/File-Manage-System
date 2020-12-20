@@ -17,13 +17,15 @@
     <el-container class="container">
         <el-header>
             <el-breadcrumb @click.native="handleBreadClick" separator-class="el-icon-arrow-right" v-show="!inputlist.input_show" class="path_input">
-                <el-breadcrumb-item :to="{ path: '/' }">/</el-breadcrumb-item>
                 <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }" @click.native.stop="back(path)">{{path}}</el-breadcrumb-item>
             </el-breadcrumb>
             <el-input @blur="inputlist.input_show=false;" placeholder="请输入路径" v-model="inputlist.filepath" class="path_input" style="background: none;" v-show="inputlist.input_show"></el-input>
-            <el-input placeholder="请输入文件名" v-model="inputlist.filename" class="filename_input">
-                <el-button slot="append" icon="el-icon-search" @click.native="searchfile"></el-button>
-            </el-input>
+            <el-button @click="tab.tabShow=!tab.tabShow;">显/隐打开文件</el-button>
+            <el-autocomplete class="filename_input"
+                    v-model="inputlist.filename"
+                    :fetch-suggestions="searchfile"
+                    placeholder="请输入文件名"
+            ></el-autocomplete>
         </el-header>
         <el-container>
             <el-aside>
@@ -101,20 +103,23 @@
                             {{blankcard.contextmenu[2]}}
                         </div>
                     </el-card>
-                    <el-card class="text-edit" v-show="textedit.card_show">
-                        <div slot="header" class="clearfix">
-                            <span>{{row.filename}}</span>
-                            <el-button style="float: right; padding: 3px 0" type="text" @click="closefile">关闭</el-button>
-                        </div>
-                        <el-input
-                                type="textarea"
-                                :autosize="{ minRows: 2,maxRows:5}"
-                                @change="handleContentChange"
-                                @blur="writefile"
-                                placeholder="请输入内容"
-                                v-model="textedit.filecontent">
-                        </el-input>
-                    </el-card>
+                    <el-tabs v-model="editableTabsValue" type="card" closable @tab-remove="removeTab" v-show="tab.tabShow">
+                        <el-tab-pane
+                                :key="item.uid"
+                                v-for="(item, index) in editableTabs"
+                                :label="item.filename"
+                                :name="item.uid">
+                            <el-card class="text-edit">
+                                <el-input
+                                        type="textarea"
+                                        :rows="10"
+                                        @blur="writefile(item.uid,item.filecontent)"
+                                        placeholder="请输入内容"
+                                        v-model="item.filecontent">
+                                </el-input>
+                            </el-card>
+                        </el-tab-pane>
+                    </el-tabs>
                 </el-main>
             </el-container>
         </el-container>
