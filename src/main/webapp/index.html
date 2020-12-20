@@ -16,14 +16,17 @@
 <div id="app">
     <el-container class="container">
         <el-header>
-            <el-breadcrumb @click.native="handleBreadClick" separator-class="el-icon-arrow-right" v-show="!inputlist.input_show" class="path_input">
+            <el-breadcrumb separator-class="el-icon-arrow-right" class="path_input">
                 <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }" @click.native.stop="back(path)">{{path}}</el-breadcrumb-item>
             </el-breadcrumb>
-            <el-input @blur="inputlist.input_show=false;" placeholder="请输入路径" v-model="inputlist.filepath" class="path_input" style="background: none;" v-show="inputlist.input_show"></el-input>
-            <el-button @click="tab.tabShow=!tab.tabShow;">显/隐打开文件</el-button>
+            <el-input placeholder="请输入路径" v-model="inputlist.filepath" class="path_input" style="background: none;">
+                <el-button slot="append" icon="el-icon-search" @click="topath"></el-button>
+            </el-input>
+            <el-button @click="tab.tabShow=!tab.tabShow;" style="margin-right: 100px;">显/隐打开文件</el-button>
             <el-autocomplete class="filename_input"
                     v-model="inputlist.filename"
                     :fetch-suggestions="searchfile"
+                    @select="handleSelect"
                     placeholder="请输入文件名"
             ></el-autocomplete>
         </el-header>
@@ -76,16 +79,16 @@
                         <div class="text item" @click.stop="pastefile">
                             {{card.contextmenu[3]}}
                         </div>
-                        <div class="text item" @click.stop="renamefile">
+                        <div class="text item" @click.stop="renameDialogVisible=true">
                             {{card.contextmenu[4]}}
                         </div>
                         <div class="text item" @click.stop="showfile">
                             {{card.contextmenu[5]}}
                         </div>
-                        <div class="text item" @click.stop="createfile">
+                        <div class="text item" @click.stop="createDialogVisible=true">
                             {{card.contextmenu[6]}}
                         </div>
-                        <div class="text item" @click.stop="mkdir">
+                        <div class="text item" @click.stop="folderDialogVisible=true">
                             {{card.contextmenu[7]}}
                         </div>
                         <div class="text item" @click.stop="rmdir">
@@ -96,10 +99,10 @@
                         <div class="text item" @click.stop="pastefile">
                             {{blankcard.contextmenu[0]}}
                         </div>
-                        <div class="text item" @click.stop="createfile">
+                        <div class="text item" @click.stop="createDialogVisible = true">
                             {{blankcard.contextmenu[1]}}
                         </div>
-                        <div class="text item" @click.stop="mkdir">
+                        <div class="text item" @click.stop="folderDialogVisible=true">
                             {{blankcard.contextmenu[2]}}
                         </div>
                     </el-card>
@@ -120,6 +123,43 @@
                             </el-card>
                         </el-tab-pane>
                     </el-tabs>
+                    <el-dialog title="创建文件" :visible.sync="createDialogVisible"
+                               width="30%">
+                        <el-form>
+                            <el-form-item label="文件名" :label-width="formLabelWidth">
+                                <el-input v-model="inputlist.create" auto-complete="off"></el-input>
+                            </el-form-item>
+                        </el-form>
+                        <div slot="footer" class="dialog-footer">
+                            <el-button @click.stop="createDialogVisible = false;">取消</el-button>
+                            <el-button type="primary" @click.stop="createfile();createDialogVisible = false;">确 定</el-button>
+                        </div>
+                    </el-dialog>
+                    <el-dialog title="创建文件夹"
+                               :visible.sync="folderDialogVisible"
+                               width="30%">
+                        <el-form>
+                            <el-form-item label="文件名" :label-width="formLabelWidth">
+                                <el-input v-model="inputlist.mkdir" auto-complete="off"></el-input>
+                            </el-form-item>
+                        </el-form>
+                        <div slot="footer" class="dialog-footer">
+                            <el-button @click.stop="folderDialogVisible = false;">取消</el-button>
+                            <el-button type="primary" @click.stop="mkdir();folderDialogVisible = false;">确 定</el-button>
+                        </div>
+                    </el-dialog>
+                    <el-dialog title="重命名" :visible.sync="renameDialogVisible"
+                               width="30%">
+                        <el-form>
+                            <el-form-item label="文件名" :label-width="formLabelWidth">
+                                <el-input v-model="inputlist.rename" auto-complete="off"></el-input>
+                            </el-form-item>
+                        </el-form>
+                        <div slot="footer" class="dialog-footer">
+                            <el-button @click.stop="renameDialogVisible = false;">取消</el-button>
+                            <el-button type="primary" @click.stop="renamefile();renameDialogVisible = false;">确 定</el-button>
+                        </div>
+                    </el-dialog>
                 </el-main>
             </el-container>
         </el-container>

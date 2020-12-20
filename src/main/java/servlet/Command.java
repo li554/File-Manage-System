@@ -106,7 +106,7 @@ public class Command extends HttpServlet {
     private int delete(DirectoryItem file, DirectoryItem parent) {
         if (check_permission(file.permission, -1)) {
             recoverDist(disk.fcbList.get(file.fcbid));
-            parent.dirs.remove(parent);
+            parent.dirs.remove(file);
             parent.lastModifyTime = new Date().getTime();
             return Success.DELETE;
         } else {
@@ -799,6 +799,30 @@ public class Command extends HttpServlet {
                 String q = a[1];
                 int mode = Integer.parseInt(a[2]);
                 out.println(getSearchData(q,mode));
+            }
+            break;
+            case "showProperty":{
+                String name = a[1];
+                String path = a[2];
+                DirectoryItem result = getParent(path);
+                for (DirectoryItem item:result.dirs){
+                    if (item.name.equals(name)){
+                        out.println("<div>名称:"+item.name+"</div>");
+                        if (item.tag==Tag.FILE_TYPE){
+                            out.println("<div>类型:"+"文件"+"</div>");
+                            out.println("<div>创建时间:"+disk.fcbList.get(item.fcbid).creatTime+"</div>");
+                            out.println("<div>修改时间:"+disk.fcbList.get(item.fcbid).lastModifyTime+"</div>");
+                            out.println("<div>路径:"+a[2]+"/"+a[1]+"</div>");
+                            out.println("<div>大小:"+disk.fcbList.get(item.fcbid).size+"</div>");
+                        }else{
+                            out.println("<div>类型:"+"文件夹"+"</div>");
+                            out.println("<div>创建时间:"+item.creatTime+"</div>");
+                            out.println("<div>修改时间:"+item.lastModifyTime+"</div>");
+                            out.println("<div>路径:"+a[2]+"/"+a[1]+"</div>");
+                            out.println("<div>大小:"+item.size+"</div>");
+                        }
+                    }
+                }
             }
         }
     }

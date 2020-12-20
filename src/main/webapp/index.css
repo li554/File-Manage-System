@@ -30,9 +30,8 @@ body{
 }
 .container .path_input{
     flex: 2;
-    margin-right: 200px;
+    margin-right: 100px;
     background: white;
-    line-height: 40px;
     padding-left: 20px;
     border-radius: 5px;
 }

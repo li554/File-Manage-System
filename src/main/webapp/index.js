@@ -17,8 +17,15 @@ var app = new Vue({
         inputlist: {
             input_show: false,
             filepath: "",
-            filename:""
+            filename:"",
+            create:"",
+            rename:"",
+            mkdir:""
         },
+        createDialogVisible:false,
+        renameDialogVisible:false,
+        folderDialogVisible:false,
+        formLabelWidth:"120px",
         card: {
             card_show: false,
             contextmenu: ["打开文件", "删除文件", "复制", "粘贴", "重命名", "查看属性", "创建文件", "创建文件夹", "删除文件夹"],
@@ -74,7 +81,17 @@ var app = new Vue({
                 for (let i = 0; i < response.data.children.length; i++) {
                     that.data.push(response.data.children[i]);
                 }
-                that.getTableData("/");
+                axios.post('/cmd', {
+                    param: ["cd", "/"]
+                })
+                    .then(function (response) {
+                        console.log(response.data);
+                        //将filepath按照/分割，去除空格
+                        that.tableData = response.data;
+                    })
+                    .catch(function (error) {
+                        console.log(error);
+                    })
             })
             .catch(function (error) {
                 console.log(error);
@@ -86,11 +103,6 @@ var app = new Vue({
         },
         handleCurrentChange(val) {
             this.currentRow = val;
-        },
-        handleBreadClick() {
-            this.inputlist.input_show = true;
-            var str = this.paths.join("/");
-            this.inputlist.filepath = str;
         },
         handleRowClick(row, column, event) {
             var that = this;
@@ -266,7 +278,7 @@ var app = new Vue({
             console.log("rename file");
             var that = this;
             axios.post('/cmd', {
-                param: ["rename", that.tempfilename, "", "b.txt"]
+                param: ["rename", that.tempfilename, "", that.inputlist.rename]
             })
                 .then(function (response) {
                     var obj = response.data;
@@ -282,13 +294,16 @@ var app = new Vue({
                 });
         },
         showfile: function () {
+            var that = this;
             console.log("show fileProperty");
             //根据文件名和文件路径查找到对应的目录项和文件fcb，读取文件名和其它所有的属性的值，以json的格式返回文件属性信息
             axios.post('/cmd', {
-                param: ["showProperty", that.tempfilename, "/li554/test1"]
+                param: ["showProperty", that.tempfilename, that.paths.join("/").slice(1)]
             })
                 .then(function (response) {
-                    console.log(response);
+                    that.$alert(response.data, '属性', {
+                        dangerouslyUseHTMLString: true
+                    });
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -298,7 +313,7 @@ var app = new Vue({
             console.log("create file");
             var that = this;
             axios.post('/cmd', {
-                param: ["create", "a.txt", ""]
+                param: ["create", that.inputlist.create, ""]
             })
                 .then(function (response) {
                     var object = response.data;
@@ -317,7 +332,7 @@ var app = new Vue({
             console.log("create directory");
             var that = this;
             axios.post('/cmd', {
-                param: ["mkdir", "newdir", ""]
+                param: ["mkdir", that.inputlist.mkdir, ""]
             })
                 .then(function (response) {
                     var object = response.data;
@@ -341,7 +356,7 @@ var app = new Vue({
             var that = this;
             console.log("remove directory");
             axios.post('/cmd', {
-                param: ["rmdir", tthat.tempfilename, ""]
+                param: ["rmdir", that.tempfilename, ""]
             })
                 .then(function (response) {
                     var object = response.data;
@@ -413,5 +428,47 @@ var app = new Vue({
             this.editableTabsValue = activeName;
             this.editableTabs = tabs.filter(tab => tab.uid !== targetName);
         },
+        topath:function(){
+            var that = this;
+            axios.post('/cmd', {
+                param: ["cd", that.inputlist.filepath]
+            })
+                .then(function (response) {
+                    console.log(response.data);
+                    //将filepath按照/分割，去除空格
+                    var arr = that.inputlist.filepath.split("/");
+                    that.paths = ['/'];
+                    arr.forEach((item,index)=>{
+                        if (item!=""){
+                            that.paths.push(item);
+                        }
+                    })
+                    that.tableData = response.data;
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
+        },
+        handleSelect(item){
+            var that = this;
+            axios.post('/cmd', {
+                param: ["cd", item.path]
+            })
+                .then(function (response) {
+                    console.log(response.data);
+                    //将filepath按照/分割，去除空格
+                    var arr = item.path.split("/");
+                    that.paths = ['/'];
+                    arr.forEach((item,index)=>{
+                        if (item!=""){
+                            that.paths.push(item);
+                        }
+                    })
+                    that.tableData = response.data;
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
+        }
     }
 });
