@@ -1,10 +1,8 @@
 package servlet;
 
 import com.alibaba.fastjson.annotation.JSONField;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.LinkedList;
-import java.util.List;
+
+import java.util.*;
 
 public class Disk {
     final static int MAXDISK = 512*1024;        //总大小
@@ -12,8 +10,9 @@ public class Disk {
     LinkedList<DiskBlockNode> diskBlockList;    //空闲盘块链
     DirectoryItem sroot;                        //根目录
     List<User>usertable;                   //用户表
-    List<UserOpenFile> uoftable;           //用户打开文件表
-    List<SystemOpenFile> softable;         //系统打开文件表
+    Map<Long,UserOpenFile> uoftable;           //用户打开文件表
+    Map<Long,SystemOpenFile> softable;         //系统打开文件表
+    Map<Long,FCB> fcbList;
     Disk(){
         /*
         初始化磁盘分区
@@ -25,9 +24,11 @@ public class Disk {
         sroot.lastModifyTime = new Date().getTime();
         sroot.parent = null;
         sroot.dirs = new ArrayList<>();
+
         usertable = new ArrayList<>();
-        uoftable = new ArrayList<>();
-        softable = new ArrayList<>();
+        uoftable = new HashMap<>();
+        softable = new HashMap<>();
+        fcbList = new HashMap<>();
         //初始化空闲盘块链
         diskBlockList = new LinkedList<>();
         int n = Disk.MAXDISK/Disk.MAXDISKBLOCK;
@@ -45,7 +46,7 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
     @JSONField(name = "label")
     public String name;         //文件名
     @JSONField(serialize = false)
-    public FCB fcb;
+    public long fcbid;
     @JSONField(serialize = false)
     public int permission;
     @JSONField(serialize = false)
@@ -57,7 +58,6 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
     @JSONField(name = "children")
     public List<DirectoryItem> dirs;
     DirectoryItem(){
-        fcb = null;
         dirs = null;
     }
     DirectoryItem(String name,int permission,int tag){
@@ -76,12 +76,12 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
         this.tag = tag;
     }
 
-    public FCB getFcb() {
-        return fcb;
+    public long getFcbId() {
+        return fcbid;
     }
 
-    public void setFcb(FCB fcb) {
-        this.fcb = fcb;
+    public void setFcbId(FCB fcb) {
+        this.fcbid = fcbid;
     }
 
     public int getPermission() {
@@ -126,21 +126,19 @@ class FCB{
     public LinkedList<DiskBlockNode> flist;
 }
 class UserOpenFile{
-    public Integer uid;         //需要它作为一个引用类型，方便open函数和close函数使用
+    public long uid;
     public String filename;
     public int mode;            //表示以什么样的模式打开文件（r:0,w:1,rw:2,aw:3）
     public int rpoint;
     public int wpoint;
-    public int sid;
+    public long sid;
 }
-
 class SystemOpenFile{
-    public int sid;
+    public long sid;
     public String filename;
     public DirectoryItem fitem;
     public int opencount;
 }
-
 class User{
     public String name;
     public String psw;
