@@ -454,7 +454,8 @@ public class Command extends HttpServlet {
             byte[] bytes = content.getBytes();
             //r为0表示所有分配的磁盘块都刚好占满
             int r = uitem.wpoint % Disk.MAXDISKBLOCK;
-            if (r != 0) {
+            if (r != 0)
+            {
                 //r表示最后一个磁盘块中已经写入数据的大小，如果不为0，我们还需向该磁盘块写入maxdiskblock-r的字节数据才能占满它
                 DiskBlockNode node = sitem.fitem.fcb.flist.getLast();
                 for (int i = 0; i < Disk.MAXDISKBLOCK - r && i < bytes.length; i++) {
@@ -806,6 +807,7 @@ public class Command extends HttpServlet {
         }
         out.println(array.toJSONString());
     }
+
     public String[] toStringArray(JSONArray array) {
         if(array==null)
             return null;

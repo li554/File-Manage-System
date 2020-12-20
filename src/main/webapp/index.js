@@ -7,7 +7,7 @@ var app = new Vue({
             label: 'label'
         },
         path: "",
-        paths: [],
+        paths: ["/"],
         tableData: [{
             filename: "a.txt",
             modtime: "2018-1-12",
@@ -44,6 +44,16 @@ var app = new Vue({
         },
         copy: {
             bufferid: 0
+        },
+        Success:{
+            WRITE:-7,
+            DELETE:-8,
+            CREATE:-9,
+            READ:-10,
+            RMDIR:-11,
+            MKDIR:-12,
+            PASTE:-13,
+            RENAME:-14
         }
     },
     created: function () {
@@ -69,16 +79,7 @@ var app = new Vue({
                 for (let i = 0; i < response.data.children.length; i++) {
                     that.data.push(response.data.children[i]);
                 }
-                axios.post('/cmd', {
-                    param: ["getTableData", "/"]
-                })
-                    .then(function (response) {
-                        console.log(response.data);
-                        that.tableData = response.data;
-                    })
-                    .catch(function (error) {
-                        console.log(error);
-                    })
+                that.getTableData("/");
             })
             .catch(function (error) {
                 console.log(error);
@@ -125,10 +126,10 @@ var app = new Vue({
             })
                 .then(function (response) {
                     var object = response.data;
-                    if (object.code == -7)
+                    if (object.code == that.Success.WRITE)
                         that.$message('保存成功');
                     else {
-                        this.$message(object.msg);
+                        that.$message(object.msg);
                         console.log(object.msg);
                     }
                 })
@@ -187,7 +188,7 @@ var app = new Vue({
                     var object = response.data;
                     if (object.code < 0) {
                         console.log(object.msg);
-                        this.$message(object.msg);
+                        that.$message(object.msg);
                     } else {
                         that.textedit.uid = object.code;
                         axios.post('/cmd', {
@@ -221,16 +222,7 @@ var app = new Vue({
             })
                 .then(function (response) {
                     console.log(response);
-                    axios.post('/cmd', {
-                        param: ["getTableData", ""]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    that.getTableData("");
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -269,16 +261,7 @@ var app = new Vue({
             })
                 .then(function (response) {
                     console.log(response);
-                    axios.post('/cmd', {
-                        param: ["getTableData", ""]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    that.getTableData("");
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -298,19 +281,8 @@ var app = new Vue({
                         console.log(obj.msg);
                         that.$message(obj.msg);
                     } else {
-                        axios.post('/cmd', {
-                            param: ["getTableData", ""]
-                        })
-                            .then(function (response) {
-                                console.log(response.data);
-                                that.tableData = response.data;
-                                that.$message("重命名成功");
-                            })
-                            .catch(function (error) {
-                                console.log(error);
-                            })
+                        that.getTableData("");
                     }
-
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -336,16 +308,13 @@ var app = new Vue({
                 param: ["create", "a.txt", ""]
             })
                 .then(function (response) {
-                    axios.post('/cmd', {
-                        param: ["getTableData", ""]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    var object = response.data;
+                    if (object.code==that.Success.CREATE)
+                        that.getTableData("");
+                    else{
+                        that.$message(object.msg);
+                        console.log(object.msg);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -358,16 +327,13 @@ var app = new Vue({
                 param: ["mkdir", "newdir", ""]
             })
                 .then(function (response) {
-                    axios.post('/cmd', {
-                        param: ["getTableData", ""]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    var object =  response.data;
+                    if (object.code==that.Success.MKDIR)
+                        that.getTableData("");
+                    else {
+                        that.$message(object.msg);
+                        console.log(object.msg);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -379,25 +345,36 @@ var app = new Vue({
             //从目录项中找到所有的子项，如果子项是文件，调用删除文件的函数，
             //如果子项是目录，那么递归调用rmdir函数，删除目录，删除完所有的子项时结束
             //最后再删除该目录的表项
+            var that = this;
             console.log("remove directory");
             axios.post('/cmd', {
                 param: ["rmdir", that.row.filename, ""]
             })
                 .then(function (response) {
-                    axios.post('/cmd', {
-                        param: ["getTableData", "/"]
-                    })
-                        .then(function (response) {
-                            console.log(response.data);
-                            that.tableData = response.data;
-                        })
-                        .catch(function (error) {
-                            console.log(error);
-                        })
+                    var object =  response.data;
+                    if (object.code==that.Success.RMDIR)
+                        that.getTableData("");
+                    else {
+                        that.$message(object.msg);
+                        console.log(object.msg);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
                 });
+        },
+        getTableData:function (path){
+            var that = this;
+            axios.post('/cmd', {
+                param: ["getTableData", path]
+            })
+                .then(function (response) {
+                    console.log(response.data);
+                    that.tableData = response.data;
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
         },
         searchfile: function () {
             //搜索

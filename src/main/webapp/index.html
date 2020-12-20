@@ -17,7 +17,6 @@
     <el-container class="container">
         <el-header>
             <el-breadcrumb @click.native="handleBreadClick" separator-class="el-icon-arrow-right" v-show="!inputlist.input_show" class="path_input">
-                <el-breadcrumb-item :to="{ path: '/' }">/</el-breadcrumb-item>
                 <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }" @click.native.stop="back(path)">{{path}}</el-breadcrumb-item>
             </el-breadcrumb>
             <el-input @blur="inputlist.input_show=false;" placeholder="请输入路径" v-model="inputlist.filepath" class="path_input" style="background: none;" v-show="inputlist.input_show"></el-input>
