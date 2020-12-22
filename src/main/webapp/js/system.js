@@ -39,7 +39,7 @@ var app = new Vue({
             top: 0
         },
         copy: {
-            bufferid: 0
+            bufferid: -1
         },
         Success: {
             WRITE: -7,
@@ -49,7 +49,8 @@ var app = new Vue({
             RMDIR: -11,
             MKDIR: -12,
             PASTE: -13,
-            RENAME: -14
+            RENAME: -14,
+            CD:-15
         },
         tab:{
             tabShow:false,
@@ -60,6 +61,17 @@ var app = new Vue({
     },
     created: function () {
         var that = this;
+        axios.post('/cmd', {
+            param: ["cd", "/"]
+        })
+            .then(function (response) {
+                console.log(response.data);
+                that.getTableData("");
+                that.getDirectory();
+            })
+            .catch(function (error) {
+                console.log(error);
+            })
         $(document).contextmenu(function () {
             that.blankcard.card_show = !that.blankcard.card_show;
             if (that.blankcard.card_show) {
@@ -71,31 +83,6 @@ var app = new Vue({
             }
             return false;
         })
-        //从后端获取目录数据
-        var that = this;
-        axios.post('/cmd', {
-            param: ["getDirectory"]
-        })
-            .then(function (response) {
-                console.log(response.data);
-                for (let i = 0; i < response.data.children.length; i++) {
-                    that.data.push(response.data.children[i]);
-                }
-                axios.post('/cmd', {
-                    param: ["cd", "/"]
-                })
-                    .then(function (response) {
-                        console.log(response.data);
-                        //将filepath按照/分割，去除空格
-                        that.tableData = response.data;
-                    })
-                    .catch(function (error) {
-                        console.log(error);
-                    })
-            })
-            .catch(function (error) {
-                console.log(error);
-            })
     },
     methods: {
         handleNodeClick(data) {
@@ -115,12 +102,28 @@ var app = new Vue({
                 })
                     .then(function (response) {
                         console.log(response.data);
-                        that.tableData = response.data;
+                        that.getTableData("");
                     })
                     .catch(function (error) {
                         console.log(error);
                     })
             }
+        },
+        getDirectory(){
+            var that = this;
+            axios.post('/cmd', {
+                param: ["getDirectory"]
+            })
+                .then(function (response) {
+                    console.log(response.data);
+                    that.data = [];
+                    for (let i = 0; i < response.data.children.length; i++) {
+                        that.data.push(response.data.children[i]);
+                    }
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
         },
         writefile(uid,content) {
             var that = this;
@@ -147,6 +150,7 @@ var app = new Vue({
             })
                 .then(function (response) {
                     console.log(response.data);
+                    that.getTableData("");
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -164,7 +168,7 @@ var app = new Vue({
             })
                 .then(function (response) {
                     console.log(response.data);
-                    that.tableData = response.data;
+                    that.getTableData();
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -228,6 +232,7 @@ var app = new Vue({
                 .then(function (response) {
                     console.log(response);
                     that.getTableData("");
+                    that.getDirectory();
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -266,7 +271,15 @@ var app = new Vue({
             })
                 .then(function (response) {
                     console.log(response);
-                    that.getTableData("");
+                    var object = response.data;
+                    if (object.code < 0) {
+                        console.log(object.msg);
+                        that.$message(object.msg);
+                    } else {
+                        that.$message("粘贴成功");
+                        that.getTableData("");
+                        that.getDirectory();
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -287,6 +300,7 @@ var app = new Vue({
                         that.$message(obj.msg);
                     } else {
                         that.getTableData("");
+                        that.getDirectory();
                     }
                 })
                 .catch(function (error) {
@@ -317,9 +331,10 @@ var app = new Vue({
             })
                 .then(function (response) {
                     var object = response.data;
-                    if (object.code == that.Success.CREATE)
+                    if (object.code == that.Success.CREATE){
                         that.getTableData("");
-                    else {
+                        that.getDirectory();
+                    }else {
                         that.$message(object.msg);
                         console.log(object.msg);
                     }
@@ -336,9 +351,10 @@ var app = new Vue({
             })
                 .then(function (response) {
                     var object = response.data;
-                    if (object.code == that.Success.MKDIR)
+                    if (object.code == that.Success.MKDIR){
                         that.getTableData("");
-                    else {
+                        that.getDirectory();
+                    }else {
                         that.$message(object.msg);
                         console.log(object.msg);
                     }
@@ -360,9 +376,10 @@ var app = new Vue({
             })
                 .then(function (response) {
                     var object = response.data;
-                    if (object.code == that.Success.RMDIR)
+                    if (object.code == that.Success.RMDIR){
                         that.getTableData("");
-                    else {
+                        that.getDirectory();
+                    }else {
                         that.$message(object.msg);
                         console.log(object.msg);
                     }
@@ -435,15 +452,21 @@ var app = new Vue({
             })
                 .then(function (response) {
                     console.log(response.data);
-                    //将filepath按照/分割，去除空格
-                    var arr = that.inputlist.filepath.split("/");
-                    that.paths = ['/'];
-                    arr.forEach((item,index)=>{
-                        if (item!=""){
-                            that.paths.push(item);
-                        }
-                    })
-                    that.tableData = response.data;
+                    var object = response.data;
+                    if (object.code == that.Success.CD){
+                        //将filepath按照/分割，去除空格
+                        var arr = that.inputlist.filepath.split("/");
+                        that.paths = ['/'];
+                        arr.forEach((item,index)=>{
+                            if (item!=""){
+                                that.paths.push(item);
+                            }
+                        })
+                        that.getTableData("");
+                    }else {
+                        that.$message(object.msg);
+                        console.log(object.msg);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -469,6 +492,20 @@ var app = new Vue({
                 .catch(function (error) {
                     console.log(error);
                 })
+        },
+        dateFormat:function(row, column) {
+            var cjsj = row[column.property];
+            if (cjsj == undefined) {
+                return "";
+            }
+            var date = new Date(cjsj) //时间戳为10位需*1000，时间戳为13位的话不需乘1000
+            var Y = date.getFullYear() + '-'
+            var M = (date.getMonth()+1 < 10 ? '0'+(date.getMonth()+1) : date.getMonth()+1) + '-'
+            var D = date.getDate() + ' '
+            var h = date.getHours() + ':'
+            var m = date.getMinutes() + ':'
+            var s = date.getSeconds()
+            return Y+M+D+h+m+s;
         }
     }
 });

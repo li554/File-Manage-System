@@ -40,4 +40,5 @@ class Success{
     static final int MKDIR = -12;
     static final int PASTE = -13;
     static final int RENAME= -14;
+    static final int CD = -15;
 }

@@ -1,32 +1,26 @@
 package servlet;
-
 import com.alibaba.fastjson.annotation.JSONField;
 
 import java.util.*;
-
 public class Disk {
     final static int MAXDISK = 512*1024;        //总大小
     final static int MAXDISKBLOCK = 4*1024;     //每一个块的大小
     LinkedList<DiskBlockNode> diskBlockList;    //空闲盘块链
     DirectoryItem sroot;                        //根目录
-    List<User>usertable;                   //用户表
-    Map<Long,UserOpenFile> uoftable;           //用户打开文件表
-    Map<Long,SystemOpenFile> softable;         //系统打开文件表
+    List<User>usertable;                        //用户表
+    Map<Long,SystemOpenFile> softable;          //系统打开文件表
     Map<Long,FCB> fcbList;
     Disk(){
         /*
         初始化磁盘分区
          */
-
         //初始化根目录,用户进程打开文件表，系统打开文件表
-        sroot = new DirectoryItem("root",Permission.RW_EXEC,Tag.DIRECTORY_TYPE);
+        sroot = new DirectoryItem("root",Tag.DIRECTORY_TYPE);
         sroot.size = 0;
         sroot.lastModifyTime = new Date().getTime();
         sroot.parent = null;
         sroot.dirs = new ArrayList<>();
-
         usertable = new ArrayList<>();
-        uoftable = new HashMap<>();
         softable = new HashMap<>();
         fcbList = new HashMap<>();
         //初始化空闲盘块链
@@ -48,8 +42,6 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
     @JSONField(serialize = false)
     public long fcbid;
     @JSONField(serialize = false)
-    public int permission;
-    @JSONField(serialize = false)
     public long creatTime;
     @JSONField(serialize = false)
     public long lastModifyTime;
@@ -57,12 +49,8 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
     public int size;
     @JSONField(name = "children")
     public List<DirectoryItem> dirs;
-    DirectoryItem(){
-        dirs = null;
-    }
-    DirectoryItem(String name,int permission,int tag){
+    DirectoryItem(String name,int tag){
         this.tag = tag;
-        this.permission = permission;
         this.name = name;
         if (tag==Tag.DIRECTORY_TYPE)
             dirs = new ArrayList<>();
@@ -82,14 +70,6 @@ class DirectoryItem{            //目录索引项,索引可能是文件的索引
 
     public void setFcbId(FCB fcb) {
         this.fcbid = fcbid;
-    }
-
-    public int getPermission() {
-        return permission;
-    }
-
-    public void setPermission(int permission) {
-        this.permission = permission;
     }
 
     public String getName() {
@@ -119,7 +99,6 @@ class DiskBlockNode{
 class FCB{
     public int type;
     public int size;
-    public int permission;
     public int usecount;
     public long creatTime;
     public long lastModifyTime;
@@ -142,13 +121,27 @@ class SystemOpenFile{
 class User{
     public String name;
     public String psw;
-    public int permission;
     public DirectoryItem uroot;
-    User(String name,String psw,int permission){
+    public Map<Long,UserOpenFile> uoftable;           //用户打开文件表
+    public Map<Long,DomainItem>visitList;
+    User(String name,String psw){
         this.name = name;
         this.psw = psw;
-        this.permission = permission;
-        this.uroot = new DirectoryItem(name,permission,Tag.DIRECTORY_TYPE);
+        this.uroot = new DirectoryItem(name,Tag.DIRECTORY_TYPE);
         this.uroot.dirs = new ArrayList<>();
+        this.uoftable = new HashMap<>();
+        this.visitList = new HashMap<>();
+    }
+}
+class DomainItem{       //访问矩阵的每一个表项
+    public long fcbid;
+    public int R;
+    public int W;
+    public int E;
+    DomainItem(long fcbid,int R,int W,int E){
+        this.fcbid = fcbid;
+        this.R = R;
+        this.W = W;
+        this.E = E;
     }
 }

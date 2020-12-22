@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ch">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.bootcss.com/element-ui/2.12.0/theme-chalk/index.css" rel="stylesheet">
+    <script src="https://cdn.bootcss.com/vue/2.6.10/vue.min.js"></script>
+    <script src="https://cdn.staticfile.org/axios/0.18.0/axios.min.js"></script>
+    <script src="https://cdn.bootcss.com/element-ui/2.12.0/index.js"></script>
+    <script src="https://cdn.staticfile.org/jquery/1.10.2/jquery.min.js"></script>
+    <title>视频主页</title>
+    <link rel="stylesheet" href="css/system.css">
+</head>
+
+<body>
+<div id="app">
+    <el-container class="container">
+        <el-header>
+            <el-breadcrumb separator-class="el-icon-arrow-right" class="path_input">
+                <el-breadcrumb-item v-for="path in paths" :to="{ path: '/' }" @click.native.stop="back(path)">{{path}}</el-breadcrumb-item>
+            </el-breadcrumb>
+            <el-input placeholder="请输入路径" v-model="inputlist.filepath" class="path_input" style="background: none;">
+                <el-button slot="append" icon="el-icon-search" @click="topath"></el-button>
+            </el-input>
+            <el-button @click="tab.tabShow=!tab.tabShow;" style="margin-right: 100px;">显/隐打开文件</el-button>
+            <el-autocomplete class="filename_input"
+                    v-model="inputlist.filename"
+                    :fetch-suggestions="searchfile"
+                    @select="handleSelect"
+                    placeholder="请输入文件名"
+            ></el-autocomplete>
+        </el-header>
+        <el-container>
+            <el-aside>
+                <el-tree :data="data" :props="defaultProps" @node-click="handleNodeClick"></el-tree>
+            </el-aside>
+            <el-container>
+                <el-main @click.native="card.card_show = false;blankcard.card_show=false;">
+                    <el-table
+                            :data="tableData"
+                            highlight-current-row
+                            @current-change="handleCurrentChange"
+                            @row-contextmenu="handleContextMenuClick"
+                            @row-dblclick="handleRowClick"
+                            style="width: 100%">
+                        <el-table-column
+                                prop="filename"
+                                label="文件名"
+                                sortable
+                                width="180">
+                        </el-table-column>
+                        <el-table-column
+                                prop="modtime"
+                                label="修改日期"
+                                :formatter="dateFormat"
+                                sortable
+                                width="180">
+                        </el-table-column>
+                        <el-table-column
+                                prop="type"
+                                sortable
+                                label="类型">
+                        </el-table-column>
+                        <el-table-column
+                                prop="size"
+                                sortable
+                                label="大小">
+                        </el-table-column>
+                    </el-table>
+                    <el-card class="card box-card" v-show="card.card_show" :style="'left: '+card.left+';top: '+card.top+';'">
+                        <div class="text item" @click.stop="openfile">
+                            {{card.contextmenu[0]}}
+                        </div>
+                        <div class="text item" @click.stop="deletefile">
+                            {{card.contextmenu[1]}}
+                        </div>
+                        <div class="text item" @click.stop="copyfile">
+                            {{card.contextmenu[2]}}
+                        </div>
+                        <div class="text item" @click.stop="pastefile">
+                            {{card.contextmenu[3]}}
+                        </div>
+                        <div class="text item" @click.stop="renameDialogVisible=true">
+                            {{card.contextmenu[4]}}
+                        </div>
+                        <div class="text item" @click.stop="showfile">
+                            {{card.contextmenu[5]}}
+                        </div>
+                        <div class="text item" @click.stop="createDialogVisible=true">
+                            {{card.contextmenu[6]}}
+                        </div>
+                        <div class="text item" @click.stop="folderDialogVisible=true">
+                            {{card.contextmenu[7]}}
+                        </div>
+                        <div class="text item" @click.stop="rmdir">
+                            {{card.contextmenu[8]}}
+                        </div>
+                    </el-card>
+                    <el-card class="blank-card box-card" v-show="blankcard.card_show" :style="'left: '+blankcard.left+';top: '+blankcard.top+';'">
+                        <div class="text item" @click.stop="pastefile">
+                            {{blankcard.contextmenu[0]}}
+                        </div>
+                        <div class="text item" @click.stop="createDialogVisible = true">
+                            {{blankcard.contextmenu[1]}}
+                        </div>
+                        <div class="text item" @click.stop="folderDialogVisible=true">
+                            {{blankcard.contextmenu[2]}}
+                        </div>
+                    </el-card>
+                    <el-tabs v-model="editableTabsValue" type="card" closable @tab-remove="removeTab" v-show="tab.tabShow">
+                        <el-tab-pane
+                                :key="item.uid"
+                                v-for="(item, index) in editableTabs"
+                                :label="item.filename"
+                                :name="item.uid">
+                            <el-card class="text-edit">
+                                <el-input
+                                        type="textarea"
+                                        :rows="10"
+                                        @blur="writefile(item.uid,item.filecontent)"
+                                        placeholder="请输入内容"
+                                        v-model="item.filecontent">
+                                </el-input>
+                            </el-card>
+                        </el-tab-pane>
+                    </el-tabs>
+                    <el-dialog title="创建文件" :visible.sync="createDialogVisible"
+                               width="30%">
+                        <el-form>
+                            <el-form-item label="文件名" :label-width="formLabelWidth">
+                                <el-input v-model="inputlist.create" auto-complete="off"></el-input>
+                            </el-form-item>
+                        </el-form>
+                        <div slot="footer" class="dialog-footer">
+                            <el-button @click.stop="createDialogVisible = false;">取消</el-button>
+                            <el-button type="primary" @click.stop="createfile();createDialogVisible = false;">确 定</el-button>
+                        </div>
+                    </el-dialog>
+                    <el-dialog title="创建文件夹"
+                               :visible.sync="folderDialogVisible"
+                               width="30%">
+                        <el-form>
+                            <el-form-item label="文件名" :label-width="formLabelWidth">
+                                <el-input v-model="inputlist.mkdir" auto-complete="off"></el-input>
+                            </el-form-item>
+                        </el-form>
+                        <div slot="footer" class="dialog-footer">
+                            <el-button @click.stop="folderDialogVisible = false;">取消</el-button>
+                            <el-button type="primary" @click.stop="mkdir();folderDialogVisible = false;">确 定</el-button>
+                        </div>
+                    </el-dialog>
+                    <el-dialog title="重命名" :visible.sync="renameDialogVisible"
+                               width="30%">
+                        <el-form>
+                            <el-form-item label="文件名" :label-width="formLabelWidth">
+                                <el-input v-model="inputlist.rename" auto-complete="off"></el-input>
+                            </el-form-item>
+                        </el-form>
+                        <div slot="footer" class="dialog-footer">
+                            <el-button @click.stop="renameDialogVisible = false;">取消</el-button>
+                            <el-button type="primary" @click.stop="renamefile();renameDialogVisible = false;">确 定</el-button>
+                        </div>
+                    </el-dialog>
+                </el-main>
+            </el-container>
+        </el-container>
+    </el-container>
+</div>
+<script src="js/system.js"></script>
+</body>
+</html>
