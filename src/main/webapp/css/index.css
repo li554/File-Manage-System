@@ -78,10 +78,10 @@
     border-left: 0.5px solid lightgrey;
 }
 .password-icon{
-    background:url(http://localhost:8081/html/images/password-icon.png) -89px 0 no-repeat;
+    background:url(http://localhost:8081/img/password-icon.png) no-repeat;
 }
 .number-icon{
-    background: url(http://localhost:8081/html/images/password-icon.png) -117px 0 no-repeat;
+    background: url(http://localhost:8081/img/email.png) no-repeat;
 }
 .container  .submit{
 	border:none;

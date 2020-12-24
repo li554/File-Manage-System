@@ -1,108 +1,82 @@
 package servlet;
-import com.alibaba.fastjson.annotation.JSONField;
-
+import com.alibaba.fastjson.JSONArray;
+import java.io.UnsupportedEncodingException;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 public class Disk {
-    final static int MAXDISK = 512*1024;        //总大小
-    final static int MAXDISKBLOCK = 4*1024;     //每一个块的大小
+    final static int DISK_SIZE = 512*1024;        //总大小
     LinkedList<DiskBlockNode> diskBlockList;    //空闲盘块链
     DirectoryItem sroot;                        //根目录
-    List<User>usertable;                        //用户表
-    Map<Long,SystemOpenFile> softable;          //系统打开文件表
-    Map<Long,FCB> fcbList;
+    Map<Long,Inode> inodeMap;
     Disk(){
-        /*
-        初始化磁盘分区
-         */
-        //初始化根目录,用户进程打开文件表，系统打开文件表
-        sroot = new DirectoryItem("root",Tag.DIRECTORY_TYPE);
-        sroot.size = 0;
-        sroot.lastModifyTime = new Date().getTime();
-        sroot.parent = null;
-        sroot.dirs = new ArrayList<>();
-        usertable = new ArrayList<>();
-        softable = new HashMap<>();
-        fcbList = new HashMap<>();
+        //初始化索引节点目录
+        inodeMap = new HashMap<>();
+
+        //初始化根目录,在索引节点的第一个即根目录文件
+        sroot = new DirectoryItem("root",0);
+        Inode inode = new Inode(0,FileType.FOLDER_FILE,0);
+        inodeMap.put((long) 0,inode);
+
         //初始化空闲盘块链
         diskBlockList = new LinkedList<>();
-        int n = Disk.MAXDISK/Disk.MAXDISKBLOCK;
+        int n = Disk.DISK_SIZE/DiskBlockNode.NODE_SIZE;
         for (int i=0;i<n;i++){
             DiskBlockNode node = new DiskBlockNode();
             diskBlockList.add(node);
         }
     }
 }
-class DirectoryItem{            //目录索引项,索引可能是文件的索引，也可能是目录的索引
-    @JSONField(serialize = false)
-    public DirectoryItem parent;
-    @JSONField(serialize = false)
-    public int tag ;            //标志位，区分该表项指向指向一个目录，还是一个文件
-    @JSONField(name = "label")
+class DirectoryItem{            //目录索引项
     public String name;         //文件名
-    @JSONField(serialize = false)
-    public long fcbid;
-    @JSONField(serialize = false)
-    public long creatTime;
-    @JSONField(serialize = false)
-    public long lastModifyTime;
-    @JSONField(serialize = false)
-    public int size;
-    @JSONField(name = "children")
-    public List<DirectoryItem> dirs;
-    DirectoryItem(String name,int tag){
-        this.tag = tag;
+    public long inodeid;          //索引节点号
+    DirectoryItem(String name,long inodeid){
         this.name = name;
-        if (tag==Tag.DIRECTORY_TYPE)
-            dirs = new ArrayList<>();
+        this.inodeid = inodeid;
     }
-
-    public int getTag() {
-        return tag;
+    public List<DirectoryItem> getDirs(Disk disk) throws UnsupportedEncodingException {
+        Inode root = disk.inodeMap.get(inodeid);
+        StringBuilder content = new StringBuilder();
+        for (DiskBlockNode node:root.flist){
+            String str = new String(node.content);
+            Pattern pattern = Pattern.compile("([^\u0000]*)");
+            Matcher matcher = pattern.matcher(str);
+            if(matcher.find(0)){
+                content.append(new String(matcher.group(1).getBytes("utf-8")));
+            }
+        }
+        JSONArray array = JSONArray.parseArray(content.toString());
+        return array.toJavaList(DirectoryItem.class);
     }
-
-    public void setTag(int tag) {
-        this.tag = tag;
-    }
-
-    public long getFcbId() {
-        return fcbid;
-    }
-
-    public void setFcbId(FCB fcb) {
-        this.fcbid = fcbid;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public List<DirectoryItem> getDirs() {
-        return dirs;
-    }
-
-    public void setDirs(List<DirectoryItem> dirs) {
-        this.dirs = dirs;
+    public DirectoryItem getParent(Disk disk) throws UnsupportedEncodingException {
+        List<DirectoryItem>dirs = this.getDirs(disk);
+        return dirs.get(0);
     }
 }
 class DiskBlockNode{
-    public int maxlength;
+    final static int NODE_SIZE = 4*1024;     //每一个块的大小
     public byte[] content;
     DiskBlockNode(){
         content = null;
-        maxlength = Disk.MAXDISKBLOCK;       //设置磁盘块大小为4K
     }
 }
-class FCB{
+class Inode{
+    public long uid;
     public int type;
     public int size;
-    public int usecount;
     public long creatTime;
     public long lastModifyTime;
     public LinkedList<DiskBlockNode> flist;
+    public Map<Long,ACLItem> acl;
+    Inode(long uid,int type,long time){
+        this.uid = uid;
+        this.type = type;
+        this.creatTime = time;
+        this.lastModifyTime = time;
+        this.size = 0;
+        acl = new HashMap<>();
+    }
 }
 class UserOpenFile{
     public long uid;
@@ -119,27 +93,39 @@ class SystemOpenFile{
     public int opencount;
 }
 class User{
+    public long uid;
     public String name;
     public String psw;
     public DirectoryItem uroot;
     public Map<Long,UserOpenFile> uoftable;           //用户打开文件表
-    public Map<Long,DomainItem>visitList;
+    public Map<Long,CpbItem>visitList;
     User(String name,String psw){
+        this.uid = new Date().getTime();
         this.name = name;
         this.psw = psw;
-        this.uroot = new DirectoryItem(name,Tag.DIRECTORY_TYPE);
-        this.uroot.dirs = new ArrayList<>();
         this.uoftable = new HashMap<>();
         this.visitList = new HashMap<>();
     }
 }
-class DomainItem{       //访问矩阵的每一个表项
+class CpbItem{       //访问权限表
     public long fcbid;
     public int R;
     public int W;
     public int E;
-    DomainItem(long fcbid,int R,int W,int E){
+    CpbItem(long fcbid,int R,int W,int E){
         this.fcbid = fcbid;
+        this.R = R;
+        this.W = W;
+        this.E = E;
+    }
+}
+class ACLItem{
+    public long uid;
+    public int R;
+    public int W;
+    public int E;
+    ACLItem(long uid,int R,int W,int E){
+        this.uid = uid;
         this.R = R;
         this.W = W;
         this.E = E;

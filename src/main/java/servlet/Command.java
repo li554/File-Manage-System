@@ -20,6 +20,8 @@ import java.util.regex.Pattern;
 @WebServlet(name = "cmd", urlPatterns = {"/cmd"})
 public class Command extends HttpServlet {
     private Disk disk;
+    private List<User> usertable;                        //用户表
+    private Map<Long,SystemOpenFile> softable;          //系统打开文件表
     private User current_user;
     private DirectoryItem current_dir;
     private HashMap<Integer, String> buffer;
@@ -29,6 +31,8 @@ public class Command extends HttpServlet {
     public void init() {
         disk = new Disk();
         buffer = new HashMap<>();
+        usertable = new ArrayList<>();
+        softable = new HashMap<>();
         try {
             //创建一个用户
             createUser("li554","123456");
@@ -85,45 +89,50 @@ public class Command extends HttpServlet {
         return "ok";
     }
 
-    private void createUser(String uname, String psw) {
+    private void createUser(String uname, String psw) throws IOException {
+        //初始化用户基本信息
         User user = new User(uname, psw);
-        disk.sroot.dirs.add(user.uroot);
-        disk.usertable.add(user);
-        //初始化用户的文件访问表
-        for (Map.Entry<Long, FCB> entry:disk.fcbList.entrySet()){
-            user.visitList.put(entry.getKey(),new DomainItem(entry.getKey(),1,0,0));
-        }
-        //每当用户创建一个文件的时候，默认对文件有可读可写可执行的权限
+        //调用mkdir函数创建一个文件夹
+        mkdir(uname,"/");
+        //在用户表中添加用户
+        usertable.add(user);
     }
 
-    private void login(String username, String psw) throws IOException {
-        for (User user : disk.usertable) {
+    private int login(String username, String psw) throws IOException {
+        for (User user : usertable) {
             if (user.name.equals(username) && user.psw.equals(psw)) {
                 current_user = user;
                 current_dir = user.uroot;
-                return;
+                return 1;
             }
         }
+        return 0;
     }
 
-    private int delete(DirectoryItem file, DirectoryItem parent) {
-        if (check_permission(file.fcbid, -1)) {
-            recoverDist(disk.fcbList.get(file.fcbid));
-            parent.dirs.remove(file);
-            long time = new Date().getTime();
-            while (parent!=null){
-                parent.lastModifyTime = time;
-                parent = parent.parent;
-            }
+    private int delete(DirectoryItem file, DirectoryItem parent) throws IOException {
+        if (check_permission(file.inodeid, -1)) {
+            recoverDist(disk.inodeMap.get(file.inodeid));
+            //在父目录中删除对应表项
+            //先打开父目录文件
+            long uid = open(parent.name,"",Mode.READ_WRITE);
+            JSONObject object = read(uid);
+            String content = (String) object.get("content");
+            String delstr = file.name+","+file.inodeid+";";
+            content = content.replace(delstr,"");
+            //然后写入文件信息
+            write(uid,content);
+            //最后关闭文件
+            close(uid);
+            updateSAT(file.inodeid);
             //删除一个对应的表项
-            current_user.visitList.remove(file.fcbid);
+            current_user.visitList.remove(file.inodeid);
             return Success.DELETE;
         } else {
             return Error.PERMISSION_DENIED;
         }
     }
 
-    private DirectoryItem getParent(String path) {
+    private DirectoryItem getParent(String path) throws UnsupportedEncodingException {
 //        首先判断路径的合法性
 //        String pattern = "([a-zA-Z]:)?(\\\\[a-zA-Z0-9_.-]+)+\\\\?";
 //        if (!Pattern.matches(pattern,path)){
@@ -151,21 +160,21 @@ public class Command extends HttpServlet {
         }
     }
 
-    private DirectoryItem recurSearch(DirectoryItem dir, List<String> dirname, int level) {
+    private DirectoryItem recurSearch(DirectoryItem dir, List<String> dirname, int level) throws UnsupportedEncodingException {
         if (level >= dirname.size()) {
             return dir;
         }
-        for (DirectoryItem item : dir.dirs) {
-            if (item.name.equals(dirname.get(level)) && item.dirs != null) {
+        for (DirectoryItem item : dir.getDirs(disk)) {
+            if (item.name.equals(dirname.get(level)) && item.getDirs(disk) != null) {
                 return recurSearch(item, dirname, level + 1);
             }
         }
         return null;
     }
 
-    private void rmdir(DirectoryItem dir) {
-        for (DirectoryItem sitem : dir.dirs) {
-            if (sitem.tag == Tag.FILE_TYPE) {
+    private void rmdir(DirectoryItem dir) throws IOException {
+        for (DirectoryItem sitem : dir.getDirs(disk)) {
+            if (disk.inodeMap.get(sitem.inodeid).type == FileType.PLAIN_FILE) {
                 delete(sitem, dir);
             } else {
                 rmdir(sitem);
@@ -175,7 +184,7 @@ public class Command extends HttpServlet {
 
     synchronized private boolean requestDist(LinkedList<DiskBlockNode> list, int maxLength) {
         boolean flag = false;   // 标记是否分配成功
-        int num = maxLength % Disk.MAXDISKBLOCK == 0 ? maxLength / Disk.MAXDISKBLOCK : maxLength / Disk.MAXDISKBLOCK + 1;      //算出需要几个磁盘块
+        int num = maxLength % Disk.DISK_SIZE == 0 ? maxLength / Disk.DISK_SIZE : maxLength / Disk.DISK_SIZE + 1;      //算出需要几个磁盘块
         //判断当前空闲盘块数目是否足够
         if (num <= disk.diskBlockList.size()) {
             int i = 0;
@@ -189,16 +198,16 @@ public class Command extends HttpServlet {
         return flag;
     }
 
-    synchronized private void recoverDist(FCB fcb) {
-        while (!fcb.flist.isEmpty()) {
-            DiskBlockNode node = fcb.flist.remove();
+    synchronized private void recoverDist(Inode inode) {
+        while (!inode.flist.isEmpty()) {
+            DiskBlockNode node = inode.flist.remove();
             disk.diskBlockList.add(node);
         }
     }
 
-    private boolean check_permission(long fcbid, int mode) {
+    private boolean check_permission(long inodeid, int mode) {
         //检查权限需要知道当前的操作和当前操作的文件
-        DomainItem item = current_user.visitList.get(fcbid);
+        ACLItem item = disk.inodeMap.get(inodeid).acl.get(current_user.uid);
         int permission = item.R+item.W*2+item.E*4;
         switch (permission){
             case Permission.READ_ONLY:
@@ -215,7 +224,7 @@ public class Command extends HttpServlet {
         return true;
     }
 
-    private int cd(String path) {
+    private int cd(String path) throws UnsupportedEncodingException {
         DirectoryItem result = getParent(path);
         if (result!=null) {
             current_dir = result;
@@ -225,34 +234,40 @@ public class Command extends HttpServlet {
         }
     }
 
-    private void dir() {
-        for (DirectoryItem item : current_dir.dirs) {
-            System.out.println(item.name);
-            //out.println(item.name);
-        }
-    }
-
-    private int mkdir(String name, String path) {
-        //首先检查是否重名
+    private int mkdir(String name, String path) throws IOException {
+        //首先检查路径是否存在
         DirectoryItem result = getParent(path);
         if (result == null) {
             return Error.PATH_NOT_FOUND;
         }
         //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
-        for (DirectoryItem item : result.dirs) {
+        for (DirectoryItem item : result.getDirs(disk)) {
             if (item.name.equals(name)) {
                 return Error.DUPLICATION;
             }
         }
-        DirectoryItem item = new DirectoryItem(name,Tag.DIRECTORY_TYPE);
-        item.parent = result;
-        long time = new Date().getTime();
-        item.creatTime = time;
-        result.dirs.add(item);
-        while (result!=null){
-            result.lastModifyTime = time;
-            result = result.parent;
+
+        long time =  new Date().getTime();
+        Inode node = new Inode(current_user.uid, FileType.FOLDER_FILE,time);
+
+        //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
+        //先打开父目录文件
+        long uid = open(result.name,"",Mode.WRITE_APPEND);
+        String content = name+","+time+";";
+        //然后写入文件信息
+        write(uid,content);
+        //最后关闭文件
+        close(uid);
+        updateSAT(time);
+
+        //为文件对象初始化访问控制表
+        for (User user:usertable){
+            if (user.uid!=current_user.uid)
+                node.acl.put(user.uid,new ACLItem(user.uid,1,0,0));
+            else
+                node.acl.put(user.uid,new ACLItem(user.uid,1,1,1));
         }
+        disk.inodeMap.put(time,node);
         return Success.MKDIR;
     }
 
@@ -262,15 +277,21 @@ public class Command extends HttpServlet {
             return Error.PATH_NOT_FOUND;
         }
         //在获得的目录中查找对应的目录
-        for (DirectoryItem item : result.dirs) {
+        for (DirectoryItem item : result.getDirs(disk)) {
             if (item.name.equals(name)) {
                 rmdir(item);
-                result.dirs.remove(item);
-                long time = new Date().getTime();
-                while (result!=null){
-                    result.lastModifyTime = time;
-                    result = result.parent;
-                }
+                //在父目录中删除对应表项
+                //先打开父目录文件
+                long uid = open(result.name,"",Mode.READ_WRITE);
+                JSONObject object = read(uid);
+                String content = (String) object.get("content");
+                String delstr = name+","+item.inodeid+";";
+                content = content.replace(delstr,"");
+                //然后写入文件信息
+                write(uid,content);
+                //最后关闭文件
+                close(uid);
+                updateSAT(item.inodeid);
                 return Success.RMDIR;
             }
         }
@@ -284,40 +305,55 @@ public class Command extends HttpServlet {
             return Error.PATH_NOT_FOUND;
         }
         //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
-        for (DirectoryItem item : result.dirs) {
+        for (DirectoryItem item : result.getDirs(disk)) {
             if (item.name.equals(name)) {
                 return Error.DUPLICATION;
             }
         }
         LinkedList<DiskBlockNode> list = new LinkedList<>();
         //不重名，则开始分配空间
-        if (requestDist(list, 0)) {        //如果分配空间成功
-            FCB fcb = new FCB();
-            fcb.flist = list;
-            fcb.creatTime = new Date().getTime();
-            fcb.lastModifyTime = fcb.creatTime;
-            fcb.size = 0;
-            fcb.type = FileType.USER_FILE;
-            fcb.usecount = 0;
-            disk.fcbList.put(fcb.creatTime,fcb);
-            DirectoryItem item = new DirectoryItem(name,Tag.FILE_TYPE);
-            item.fcbid = fcb.creatTime;
-            item.parent = result;
-            result.dirs.add(item);
-            while (result!=null){
-                result.lastModifyTime = fcb.creatTime;
-                result = result.parent;
+        if (requestDist(list, 0)) {        
+            //如果分配空间成功
+            
+            //创建一个索引节点
+            Inode inode = new Inode(current_user.uid, FileType.PLAIN_FILE,new Date().getTime());
+            //将索引节点的盘块链指向已分配盘块
+            inode.flist = list;
+            //将索引节点添加到索引节点目录中
+            disk.inodeMap.put(inode.creatTime,inode);
+           
+            //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
+            //先打开父目录文件
+            long uid = open(result.name,"",Mode.WRITE_APPEND);
+            String content = name+","+inode.creatTime+";";
+            //然后写入文件信息
+            write(uid,content);
+            //最后关闭文件
+            close(uid);
+            
+            //更新父级目录的访问时间
+            updateSAT(inode.creatTime);
+            
+            //为文件对象初始化访问控制表
+            for (User user:usertable){
+                if (user.uid!=current_user.uid)
+                    inode.acl.put(user.uid,new ACLItem(user.uid,1,0,0));
+                else
+                    inode.acl.put(user.uid,new ACLItem(user.uid,1,1,1));
             }
-            current_user.visitList.put(item.fcbid,new DomainItem(item.fcbid,1,1,1));
             return Success.CREATE;
         } else {
             return Error.DISK_OVERFLOW;
         }
     }
-
+    
+    private void updateSAT(long inodeid){
+        
+    }
+    
     private int delete(String name, String path) throws IOException {
         //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
-        for (SystemOpenFile file : disk.softable.values()) {
+        for (SystemOpenFile file : softable.values()) {
             if (file.filename.equals(name) && file.opencount > 0) {
                 return Error.USING_BY_OTHERS;
             }
@@ -326,7 +362,7 @@ public class Command extends HttpServlet {
         if (result == null) {
             return Error.PATH_NOT_FOUND;
         }
-        for (DirectoryItem item : result.dirs) {
+        for (DirectoryItem item : result.getDirs(disk)) {
             if (item.name.equals(name)) {
                 //没有被占用的话，判断一下用户是否有删除文件的权限
                 return delete(item, result);
@@ -341,17 +377,15 @@ public class Command extends HttpServlet {
             return Error.PATH_NOT_FOUND;
         }
         //找到所在目录后，从目录项中读取该文件的信息，首先判断是否有打开权限
-        for (DirectoryItem item : result.dirs) {
+        for (DirectoryItem item : result.getDirs(disk)) {
             if (item.name.equals(name)) {
-                if (check_permission(item.fcbid, mode)) {
+                if (check_permission(item.inodeid, mode)) {
                     //权限足够，接着检查是否当前进程已经打开了该文件
                     for (UserOpenFile uof : current_user.uoftable.values()) {
                         if (uof.filename.equals(name)) {
                             return uof.uid;
                         }
                     }
-                    //没有打开，那么将该文件的相关信息填入到用户进程打开文件表和系统进程打开文件表，同时将文件的使用计数增加1
-                    disk.fcbList.get(item.fcbid).usecount++;
                     UserOpenFile userOpenFile = new UserOpenFile();
                     userOpenFile.filename = name;
                     userOpenFile.mode = mode;
@@ -366,7 +400,7 @@ public class Command extends HttpServlet {
                     systemOpenFile.opencount += 1;
                     //将该文件的目录项指针存在系统打开文件表中
                     systemOpenFile.fitem = item;
-                    disk.softable.put(systemOpenFile.sid,systemOpenFile);
+                    softable.put(systemOpenFile.sid,systemOpenFile);
                     //最终应该返回一个文件描述符，也就是该文件在用户进程打开文件表中的uid
                     return userOpenFile.uid;
                 } else {
@@ -382,12 +416,12 @@ public class Command extends HttpServlet {
         //并且根据获得的sid查找系统打开文件表，如果系统打开文件表中对应表项的打开计数器的值>1那么-1，否则，删除表项
         try {
             UserOpenFile uitem = current_user.uoftable.get(uid);
-            SystemOpenFile sitem = disk.softable.get(uitem.sid);
+            SystemOpenFile sitem = softable.get(uitem.sid);
             current_user.uoftable.remove(uid);
             if (sitem.opencount > 1) {
                 sitem.opencount--;
             } else {
-                disk.softable.remove(sitem.sid);
+                softable.remove(sitem.sid);
             }
         } catch (IndexOutOfBoundsException e) {
             System.out.println("文件已经关闭，无需再次关闭");
@@ -402,9 +436,9 @@ public class Command extends HttpServlet {
         if (uitem.mode == Mode.WRITE_FIRST || uitem.mode == Mode.WRITE_APPEND) {
             object.replace("code",String.valueOf(Error.PERMISSION_DENIED));
         } else {
-            SystemOpenFile sitem = disk.softable.get(uitem.sid);
+            SystemOpenFile sitem = softable.get(uitem.sid);
             StringBuilder content = new StringBuilder();
-            for (DiskBlockNode node : disk.fcbList.get(sitem.fitem.fcbid).flist) {
+            for (DiskBlockNode node : disk.inodeMap.get(sitem.fitem.inodeid).flist) {
                 String str = new String(node.content);
                 Pattern pattern = Pattern.compile("([^\u0000]*)");
                 Matcher matcher = pattern.matcher(str);
@@ -422,34 +456,34 @@ public class Command extends HttpServlet {
         if (uitem.mode == Mode.READ_ONLY) {
             return Error.PERMISSION_DENIED;
         } else {
-            SystemOpenFile sitem = disk.softable.get(uitem.sid);
+            SystemOpenFile sitem = softable.get(uitem.sid);
             if (uitem.mode == Mode.WRITE_FIRST || uitem.mode==Mode.READ_WRITE) {
                 //如果是重写，那么先回收分配的磁盘块，然后重新根据大小赋予新的磁盘块
-                recoverDist(disk.fcbList.get(sitem.fitem.fcbid));
+                recoverDist(disk.inodeMap.get(sitem.fitem.inodeid));
                 uitem.wpoint = 0;
             }else{
-                uitem.wpoint = disk.fcbList.get(sitem.fitem.fcbid).size;
+                uitem.wpoint = disk.inodeMap.get(sitem.fitem.inodeid).size;
             }
             //现在已经获取到了该文件，通过前端传来的的文本值，我们将该值写入文件
             //中文字符占两个字节，其他字符为1个字节
             byte[] bytes = content.getBytes();
             //r为0表示所有分配的磁盘块都刚好占满
-            int r = uitem.wpoint % Disk.MAXDISKBLOCK;
+            int r = uitem.wpoint % Disk.DISK_SIZE;
             //start表示在分配给该文件的磁盘块里面第一个没写入数据的磁盘块的下标
-            int start = uitem.wpoint / Disk.MAXDISKBLOCK;
-            if (r != 0||start<disk.fcbList.get(sitem.fitem.fcbid).flist.size()-1)
+            int start = uitem.wpoint / Disk.DISK_SIZE;
+            if (r != 0||start<disk.inodeMap.get(sitem.fitem.inodeid).flist.size()-1)
             {
                 int k = 0;
-                for (int j=start;j<disk.fcbList.get(sitem.fitem.fcbid).flist.size();j++){
-                    DiskBlockNode node = disk.fcbList.get(sitem.fitem.fcbid).flist.get(j);
+                for (int j=start;j<disk.inodeMap.get(sitem.fitem.inodeid).flist.size();j++){
+                    DiskBlockNode node = disk.inodeMap.get(sitem.fitem.inodeid).flist.get(j);
                     if (j==start){
-                        for (int i = 0; i < node.maxlength - r && k < bytes.length; i++) {
+                        for (int i = 0; i < DiskBlockNode.NODE_SIZE- r && k < bytes.length; i++) {
                             node.content[r + i] = bytes[k++];
                             //修改读写指针的数值
                             uitem.wpoint++;
                         }
                     }else{
-                        for (int i=0;i< node.maxlength && k< bytes.length;i++){
+                        for (int i=0;i< DiskBlockNode.NODE_SIZE&& k< bytes.length;i++){
                             node.content[i] = bytes[k++];
                             uitem.wpoint++;
                         }
@@ -463,41 +497,33 @@ public class Command extends HttpServlet {
             }
             if (bytes.length > 0) {
                 //分配剩余的字节数据所需的磁盘块
-                if (!requestDist(disk.fcbList.get(sitem.fitem.fcbid).flist, bytes.length)) {
+                if (!requestDist(disk.inodeMap.get(sitem.fitem.inodeid).flist, bytes.length)) {
                     return Error.DISK_OVERFLOW;
                 }
                 //分配了空间之后，开始写入剩余数据
                 int i = 0;
-                for (DiskBlockNode node : disk.fcbList.get(sitem.fitem.fcbid).flist) {
+                for (DiskBlockNode node : disk.inodeMap.get(sitem.fitem.inodeid).flist) {
                     if (i >= start) {
-                        node.content = Arrays.copyOfRange(bytes, (i - start) * node.maxlength, (i - start + 1) * node.maxlength);
+                        node.content = Arrays.copyOfRange(bytes, (i - start) * DiskBlockNode.NODE_SIZE, (i - start + 1) * DiskBlockNode.NODE_SIZE);
                     }
                     i++;
                 }
                 //修改读写指针
                 uitem.wpoint += bytes.length;
-                //修改父目录的size
-                sitem.fitem.parent.size+=bytes.length-disk.fcbList.get(sitem.fitem.fcbid).size;
+                
                 //修改文件的size为bytes.length
-                disk.fcbList.get(sitem.fitem.fcbid).size = bytes.length;
-                //修改文件的修改时间
-                disk.fcbList.get(sitem.fitem.fcbid).lastModifyTime = new Date().getTime();
-                //修改目录的修改时间
-                DirectoryItem item = sitem.fitem.parent;
-                while (item!=null){
-                   item.lastModifyTime = disk.fcbList.get(sitem.fitem.fcbid).lastModifyTime;
-                   item.size += disk.fcbList.get(sitem.fitem.fcbid).size;
-                   item = item.parent;
-                }
+                disk.inodeMap.get(sitem.fitem.inodeid).size = bytes.length;
+               
+                updateSAT(sitem.fitem.inodeid);
             }
         }
         return Success.WRITE;
     }
 
     synchronized private JSONObject copy(String name, String path) throws IOException {
-        //复制文件其实就是拿到对应文件的fcb中的flist,调用读函数读出flist中的内容
+        //复制文件其实就是拿到对应文件的inode中的flist,调用读函数读出flist中的内容
         //然后选定复制目录后，确定粘贴的时候，调用create命令,创建一个同名文件，大小为0，然后调用write写入数据，在写入中重新分配磁盘块
-        //要想拿到fcb,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
+        //要想拿到inode,就需要根据当前文件名和文件路径在目录中查找到对应的文件，然后返回该文件的内容
         //当粘贴的时候再去执行创建，写入的工作
         long uid = open(name, path, Mode.READ_ONLY);
         JSONObject object = read(uid);
@@ -523,17 +549,18 @@ public class Command extends HttpServlet {
         }
     }
 
-    private void search(JSONArray array,String pattern,String path,DirectoryItem root) {
-        for (DirectoryItem item : root.dirs) {
+    private void search(JSONArray array,String pattern,String path,DirectoryItem root) throws UnsupportedEncodingException {
+        for (DirectoryItem item : root.getDirs(disk)) {
+            Inode node = disk.inodeMap.get(item.inodeid);
             if (Pattern.matches(pattern, item.name)) {
                 JSONObject object = new JSONObject();
                 object.put("value",item.name+"   "+path);
                 object.put("name",item.name);
-                object.put("type",item.tag==Tag.FILE_TYPE?"文件":"文件夹");
+                object.put("type",node.type==FileType.PLAIN_FILE?"文件":"文件夹");
                 object.put("path",path);
                 array.add(object);
             }
-            if (item.dirs!=null)
+            if (item.getDirs(disk).size()>0)
                 search(array, pattern, path+"/"+item.name, item);
         }
     }
@@ -557,17 +584,17 @@ public class Command extends HttpServlet {
         //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
         //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
         DirectoryItem result = getParent(path);
-        for (SystemOpenFile file : disk.softable.values()) {
-            if (file.filename.equals(name) && file.fitem.parent==result) {
+        for (SystemOpenFile file : softable.values()) {
+            if (file.filename.equals(name) && file.fitem.getParent(disk)==result) {
                 return Error.USING_BY_OTHERS;
             }
         }
-        for (DirectoryItem item : result.dirs) {
+        for (DirectoryItem item : result.getDirs(disk)) {
             if (item.name.equals(newname)) {
                 return Error.DUPLICATION;
             }
         }
-        for (DirectoryItem item : result.dirs) {
+        for (DirectoryItem item : result.getDirs(disk)) {
             if (item.name.equals(name)) {
                 item.name = newname;
                 return Success.RENAME;
@@ -660,11 +687,12 @@ public class Command extends HttpServlet {
             case "login": {
                 String name = a[1];
                 String psw = a[2];
-                login(name, psw);
-            }
-            break;
-            case "dir": {
-                dir();
+                int code = login(name, psw);
+                JSONObject object = new JSONObject();
+                object.put("code",code);
+                if (code==1) object.put("msg","登录成功");
+                else object.put("msg","未找到指定用户");
+                out.println(object.toJSONString());
             }
             break;
             case "mkdir": {
@@ -807,22 +835,15 @@ public class Command extends HttpServlet {
                 String name = a[1];
                 String path = a[2];
                 DirectoryItem result = getParent(path);
-                for (DirectoryItem item:result.dirs){
+                for (DirectoryItem item:result.getDirs(disk)){
+                    Inode node = disk.inodeMap.get(item.inodeid);
                     if (item.name.equals(name)){
                         out.println("<div>名称:"+item.name+"</div>");
-                        if (item.tag==Tag.FILE_TYPE){
-                            out.println("<div>类型:"+"文件"+"</div>");
-                            out.println("<div>创建时间:"+disk.fcbList.get(item.fcbid).creatTime+"</div>");
-                            out.println("<div>修改时间:"+disk.fcbList.get(item.fcbid).lastModifyTime+"</div>");
-                            out.println("<div>路径:"+a[2]+"/"+a[1]+"</div>");
-                            out.println("<div>大小:"+disk.fcbList.get(item.fcbid).size+"</div>");
-                        }else{
-                            out.println("<div>类型:"+"文件夹"+"</div>");
-                            out.println("<div>创建时间:"+item.creatTime+"</div>");
-                            out.println("<div>修改时间:"+item.lastModifyTime+"</div>");
-                            out.println("<div>路径:"+a[2]+"/"+a[1]+"</div>");
-                            out.println("<div>大小:"+item.size+"</div>");
-                        }
+                        out.println("<div>类型:"+ (node.type==FileType.PLAIN_FILE?"文件":"文件夹")+"</div>");
+                        out.println("<div>创建时间:"+node.creatTime+"</div>");
+                        out.println("<div>修改时间:"+node.lastModifyTime+"</div>");
+                        out.println("<div>路径:"+a[2]+"/"+a[1]+"</div>");
+                        out.println("<div>大小:"+node.size+"</div>");
                     }
                 }
             }
@@ -839,28 +860,24 @@ public class Command extends HttpServlet {
         out.println(json);
     }
 
-    private void getTableData(DirectoryItem root){
+    private void getTableData(DirectoryItem root) throws UnsupportedEncodingException {
         JSONArray array = new JSONArray();
         if (root==null){
             JSONObject object = new JSONObject();
             object.put("filename",disk.sroot.name);
-            object.put("modtime",disk.sroot.lastModifyTime);
+            Inode node = disk.inodeMap.get(disk.sroot.inodeid);
+            object.put("modtime",node.creatTime);
             object.put("type","文件夹");
-            object.put("size",disk.sroot.size);
+            object.put("size",node.size);
             array.add(0,object);
         }else{
-            for (DirectoryItem item:root.dirs){
+            for (DirectoryItem item:root.getDirs(disk)){
                 JSONObject object = new JSONObject();
+                Inode node = disk.inodeMap.get(item.inodeid);
                 object.put("filename",item.name);
-                if (item.tag==Tag.DIRECTORY_TYPE){
-                    object.put("modtime",item.lastModifyTime);
-                    object.put("type","文件夹");
-                    object.put("size",item.size);
-                }else if (item.tag==Tag.FILE_TYPE){
-                    object.put("modtime",disk.fcbList.get(item.fcbid).lastModifyTime);
-                    object.put("type","文件");
-                    object.put("size",disk.fcbList.get(item.fcbid).size);
-                }
+                object.put("modtime",node.lastModifyTime);
+                object.put("type",node.type==FileType.PLAIN_FILE?"文件":"文件夹");
+                object.put("size",node.size);
                 array.add(0,object);
             }
         }

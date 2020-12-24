@@ -1,8 +1,8 @@
 package servlet;
 
 public class FileType {
-    static final int SYSTEM_FILE = 1;
-    static final int USER_FILE = 0;
+    static final int PLAIN_FILE = 1;
+    static final int FOLDER_FILE = 0;
 }
 class Mode{
     static final int READ_ONLY = 0;
