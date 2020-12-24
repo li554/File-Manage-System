@@ -1,5 +1,4 @@
 package servlet;
-import com.alibaba.fastjson.JSONArray;
 import java.io.UnsupportedEncodingException;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -13,7 +12,6 @@ public class Disk {
     Disk(){
         //初始化索引节点目录
         inodeMap = new HashMap<>();
-
         //初始化根目录,在索引节点的第一个即根目录文件
         sroot = new DirectoryItem("root",0);
         Inode inode = new Inode(0,FileType.FOLDER_FILE,0);
@@ -37,6 +35,7 @@ class DirectoryItem{            //目录索引项
     }
     public List<DirectoryItem> getDirs(Disk disk) throws UnsupportedEncodingException {
         Inode root = disk.inodeMap.get(inodeid);
+        if (root.type==FileType.PLAIN_FILE) return null;
         StringBuilder content = new StringBuilder();
         for (DiskBlockNode node:root.flist){
             String str = new String(node.content);
@@ -46,11 +45,19 @@ class DirectoryItem{            //目录索引项
                 content.append(new String(matcher.group(1).getBytes("utf-8")));
             }
         }
-        JSONArray array = JSONArray.parseArray(content.toString());
-        return array.toJavaList(DirectoryItem.class);
+        List<DirectoryItem> list = new ArrayList<>();
+        String[] a = content.toString().split(";");
+        if (a[0].equals("")) return list;
+        for (int i=0;i<a.length;i++){
+            String[] b = a[i].split(",");
+            DirectoryItem item = new DirectoryItem(b[0],Long.parseLong(b[1]));
+            list.add(item);
+        }
+        return list;
     }
     public DirectoryItem getParent(Disk disk) throws UnsupportedEncodingException {
         List<DirectoryItem>dirs = this.getDirs(disk);
+        if (dirs==null) return null;
         return dirs.get(0);
     }
 }
@@ -76,6 +83,7 @@ class Inode{
         this.lastModifyTime = time;
         this.size = 0;
         acl = new HashMap<>();
+        flist = new LinkedList<>();
     }
 }
 class UserOpenFile{
@@ -98,7 +106,7 @@ class User{
     public String psw;
     public DirectoryItem uroot;
     public Map<Long,UserOpenFile> uoftable;           //用户打开文件表
-    public Map<Long,CpbItem>visitList;
+    public Map<Long,CLItem>visitList;
     User(String name,String psw){
         this.uid = new Date().getTime();
         this.name = name;
@@ -107,12 +115,12 @@ class User{
         this.visitList = new HashMap<>();
     }
 }
-class CpbItem{       //访问权限表
+class CLItem{       //访问权限表
     public long fcbid;
     public int R;
     public int W;
     public int E;
-    CpbItem(long fcbid,int R,int W,int E){
+    CLItem(long fcbid,int R,int W,int E){
         this.fcbid = fcbid;
         this.R = R;
         this.W = W;

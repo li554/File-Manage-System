@@ -3,6 +3,7 @@ package servlet;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
+import com.sun.mail.imap.ACL;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -33,6 +34,7 @@ public class Command extends HttpServlet {
         buffer = new HashMap<>();
         usertable = new ArrayList<>();
         softable = new HashMap<>();
+        current_dir = disk.sroot;
         try {
             //创建一个用户
             createUser("li554","123456");
@@ -92,10 +94,50 @@ public class Command extends HttpServlet {
     private void createUser(String uname, String psw) throws IOException {
         //初始化用户基本信息
         User user = new User(uname, psw);
-        //调用mkdir函数创建一个文件夹
-        mkdir(uname,"/");
+        current_user = user;
         //在用户表中添加用户
         usertable.add(user);
+        //为用户创建文件夹
+        int code = mkuser(uname);
+        if (code==Error.DUPLICATION){
+            return;
+        }
+        //更新所有文件的访问控制表,增加新增用户对文件的权限信息
+        for (Inode node1:disk.inodeMap.values()){
+            if (node1.uid!=user.uid)
+                node1.acl.put(user.uid,new ACLItem(user.uid,1,0,0));
+        }
+    }
+
+    private int mkuser(String name) throws IOException {
+        //首先检查路径是否存在
+        DirectoryItem result = getParent("/");
+        //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
+        for (DirectoryItem item : result.getDirs(disk)) {
+            if (item.name.equals(name)) {
+                return Error.DUPLICATION;
+            }
+        }
+        long time =  new Date().getTime();
+        Inode node = new Inode(current_user.uid, FileType.FOLDER_FILE,time);
+        current_user.uroot = new DirectoryItem(name,time);
+        //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
+        //先打开父目录文件
+        long uid = openFolder(result.name,"",Mode.WRITE_APPEND);
+        String content = name+","+time+";";
+        //然后写入文件信息
+        write(uid,content);
+        //最后关闭文件
+        close(uid);
+        //为文件对象初始化访问控制表
+        for (User user:usertable){
+            if (user.uid!=current_user.uid)
+                node.acl.put(user.uid,new ACLItem(user.uid,1,0,0));
+            else
+                node.acl.put(user.uid,new ACLItem(user.uid,1,1,1));
+        }
+        disk.inodeMap.put(time,node);
+        return Success.MKDIR;
     }
 
     private int login(String username, String psw) throws IOException {
@@ -130,6 +172,35 @@ public class Command extends HttpServlet {
         } else {
             return Error.PERMISSION_DENIED;
         }
+    }
+
+    private JSONObject getDirectory(DirectoryItem root) throws UnsupportedEncodingException {
+        /*
+        一个文件对象，它有children和label两个属性，其中label为文件或目录名
+        children表示该目录下的子项（文件或目录）
+        {
+            label:"",
+            children:[{
+                    label:"",
+                },{
+                    label:"",
+                    children:[{
+                        label:""
+                    }]
+                }]
+        }
+         */
+        JSONObject object = new JSONObject();
+        object.put("label",root.name);
+        Inode node = disk.inodeMap.get(root.inodeid);
+        if (node.type==FileType.PLAIN_FILE){
+            JSONArray array = new JSONArray();
+            for (DirectoryItem item:root.getDirs(disk)){
+                array.add(getDirectory(item));
+            }
+            object.put("children",array);
+        }
+        return object;
     }
 
     private DirectoryItem getParent(String path) throws UnsupportedEncodingException {
@@ -207,19 +278,24 @@ public class Command extends HttpServlet {
 
     private boolean check_permission(long inodeid, int mode) {
         //检查权限需要知道当前的操作和当前操作的文件
-        ACLItem item = disk.inodeMap.get(inodeid).acl.get(current_user.uid);
-        int permission = item.R+item.W*2+item.E*4;
-        switch (permission){
-            case Permission.READ_ONLY:
-                if (mode != Mode.READ_ONLY) {
-                    return false;
-                }
-                break;
-            case Permission.WRITE_ONLY:
-                if (mode!= Mode.WRITE_FIRST||mode!=Mode.WRITE_APPEND){
-                    return false;
-                }
-                break;
+        Map<Long,ACLItem> map= disk.inodeMap.get(inodeid).acl;
+
+        //首先查询访问控制表，如果访问控制表没有对应的用户的权限信息，则从访问权限表中读出权限信息
+        if (map.containsKey(current_user.uid)){
+            ACLItem item = map.get(current_user.uid);
+            int permission = item.R+item.W*2+item.E*4;
+            switch (permission){
+                case Permission.READ_ONLY:
+                    if (mode != Mode.READ_ONLY) {
+                        return false;
+                    }
+                    break;
+                case Permission.WRITE_ONLY:
+                    if (mode!= Mode.WRITE_FIRST||mode!=Mode.WRITE_APPEND){
+                        return false;
+                    }
+                    break;
+            }
         }
         return true;
     }
@@ -246,29 +322,32 @@ public class Command extends HttpServlet {
                 return Error.DUPLICATION;
             }
         }
+        //检查是否有权限创建文件
+        if (check_permission(result.inodeid,Mode.WRITE_APPEND)){
+            long time =  new Date().getTime();
+            Inode node = new Inode(current_user.uid, FileType.FOLDER_FILE,time);
+            //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
+            //先打开父目录文件
+            long uid = openFolder(result.name,"",Mode.WRITE_APPEND);
+            String content = name+","+time+";";
+            //然后写入文件信息
+            write(uid,content);
+            //最后关闭文件
+            close(uid);
+            updateSAT(time);
 
-        long time =  new Date().getTime();
-        Inode node = new Inode(current_user.uid, FileType.FOLDER_FILE,time);
-
-        //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
-        //先打开父目录文件
-        long uid = open(result.name,"",Mode.WRITE_APPEND);
-        String content = name+","+time+";";
-        //然后写入文件信息
-        write(uid,content);
-        //最后关闭文件
-        close(uid);
-        updateSAT(time);
-
-        //为文件对象初始化访问控制表
-        for (User user:usertable){
-            if (user.uid!=current_user.uid)
-                node.acl.put(user.uid,new ACLItem(user.uid,1,0,0));
-            else
-                node.acl.put(user.uid,new ACLItem(user.uid,1,1,1));
+            //为文件对象初始化访问控制表
+            for (User user:usertable){
+                if (user.uid!=current_user.uid)
+                    node.acl.put(user.uid,new ACLItem(user.uid,1,0,0));
+                else
+                    node.acl.put(user.uid,new ACLItem(user.uid,1,1,1));
+            }
+            disk.inodeMap.put(time,node);
+            return Success.MKDIR;
+        }else{
+            return Error.PERMISSION_DENIED;
         }
-        disk.inodeMap.put(time,node);
-        return Success.MKDIR;
     }
 
     private int rmdir(String name, String path) throws IOException {
@@ -324,7 +403,7 @@ public class Command extends HttpServlet {
            
             //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
             //先打开父目录文件
-            long uid = open(result.name,"",Mode.WRITE_APPEND);
+            long uid = openFolder(result.name,"",Mode.WRITE_APPEND);
             String content = name+","+inode.creatTime+";";
             //然后写入文件信息
             write(uid,content);
@@ -411,6 +490,36 @@ public class Command extends HttpServlet {
         return Error.UNKNOWN;
     }
 
+    private long openFolder(String name,String path,int mode) throws UnsupportedEncodingException {
+        DirectoryItem result = getParent(path);
+        if (check_permission(result.inodeid, mode)) {
+            //权限足够，接着检查是否当前进程已经打开了该文件
+            for (UserOpenFile uof : current_user.uoftable.values()) {
+                if (uof.filename.equals(name)) {
+                    return uof.uid;
+                }
+            }
+            UserOpenFile userOpenFile = new UserOpenFile();
+            userOpenFile.filename = name;
+            userOpenFile.mode = mode;
+            userOpenFile.rpoint = 0;
+            userOpenFile.uid = new Date().getTime();
+            userOpenFile.sid = userOpenFile.uid;
+            current_user.uoftable.put(userOpenFile.uid,userOpenFile);
+            SystemOpenFile systemOpenFile = new SystemOpenFile();
+            systemOpenFile.sid = userOpenFile.uid;
+            systemOpenFile.filename = name;
+            //打开计数器增加 1
+            systemOpenFile.opencount += 1;
+            //将该文件的目录项指针存在系统打开文件表中
+            systemOpenFile.fitem = result;
+            softable.put(systemOpenFile.sid,systemOpenFile);
+            //最终应该返回一个文件描述符，也就是该文件在用户进程打开文件表中的uid
+            return userOpenFile.uid;
+        } else {
+            return Error.PERMISSION_DENIED;
+        }
+    }
     private void close(long uid) {
         //关闭文件,需要提供一个文件描述符,系统在用户进程中的打开文件表找到对应文件，然后删除该文件项
         //并且根据获得的sid查找系统打开文件表，如果系统打开文件表中对应表项的打开计数器的值>1那么-1，否则，删除表项
@@ -584,8 +693,16 @@ public class Command extends HttpServlet {
         //重命名也就是根据文件名和文件路径查找到对应的目录项，然后修改其名字即可
         //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
         DirectoryItem result = getParent(path);
+        long uid = -1;
+        for (DirectoryItem item:result.getDirs(disk)){
+            if (item.name.equals(name)) {
+                uid = item.inodeid;
+                break;
+            }
+        }
         for (SystemOpenFile file : softable.values()) {
-            if (file.filename.equals(name) && file.fitem.getParent(disk)==result) {
+            if (file.fitem.inodeid==uid) {
+                //如果两个文件的索引节点号相同，那么一定是同一个文件
                 return Error.USING_BY_OTHERS;
             }
         }
@@ -850,12 +967,8 @@ public class Command extends HttpServlet {
         }
     }
 
-    private void getDirectory() {
-        /*
-        一个文件对象，它有children和label两个属性，其中label为文件或目录名
-        children表示该目录下的子项（文件或目录）
-         */
-        String json = JSON.toJSONString(disk.sroot);
+    private void getDirectory() throws UnsupportedEncodingException {
+        String json = getDirectory(disk.sroot).toJSONString();
         System.out.println(json);
         out.println(json);
     }
