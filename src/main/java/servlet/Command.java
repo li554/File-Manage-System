@@ -123,7 +123,7 @@ public class Command extends HttpServlet {
         current_user.uroot = new DirectoryItem(name,time);
         //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
         //先打开父目录文件
-        long uid = openFolder(result.name,"",Mode.WRITE_APPEND);
+        long uid = openFolder(result.name,"/",Mode.WRITE_APPEND);
         String content = name+","+time+";";
         //然后写入文件信息
         write(uid,content);
@@ -138,6 +138,48 @@ public class Command extends HttpServlet {
         }
         disk.inodeMap.put(time,node);
         return Success.MKDIR;
+    }
+
+    private int mkdir(String name, String path) throws IOException {
+        //首先检查路径是否存在
+        DirectoryItem result = getParent(path);
+        if (result == null) {
+            return Error.PATH_NOT_FOUND;
+        }
+        //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
+        for (DirectoryItem item : result.getDirs(disk)) {
+            if (item.name.equals(name)) {
+                return Error.DUPLICATION;
+            }
+        }
+        //检查是否有权限创建文件
+        if (check_permission(result.inodeid,Mode.WRITE_APPEND)){
+            long time =  new Date().getTime();
+            Inode node = new Inode(current_user.uid, FileType.FOLDER_FILE,time);
+            //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
+            //先打开父目录文件
+            long uid = openFolder(result.name,path,Mode.WRITE_APPEND);
+            String content = name+","+time+";";
+            //然后写入文件信息
+            write(uid,content);
+            //最后关闭文件
+            close(uid);
+            updateSAT(time);
+
+            //为文件对象初始化访问控制表
+            for (User user:usertable){
+                if (user.uid!=current_user.uid)
+                    node.acl.put(user.uid,new ACLItem(user.uid,1,0,0));
+                else
+                    node.acl.put(user.uid,new ACLItem(user.uid,1,1,1));
+            }
+            disk.inodeMap.put(time,node);
+            //打开该目录文件
+            long uid2 = openFolder(name,path,Mode.WRITE_APPEND);
+            return Success.MKDIR;
+        }else{
+            return Error.PERMISSION_DENIED;
+        }
     }
 
     private int login(String username, String psw) throws IOException {
@@ -310,46 +352,6 @@ public class Command extends HttpServlet {
         }
     }
 
-    private int mkdir(String name, String path) throws IOException {
-        //首先检查路径是否存在
-        DirectoryItem result = getParent(path);
-        if (result == null) {
-            return Error.PATH_NOT_FOUND;
-        }
-        //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
-        for (DirectoryItem item : result.getDirs(disk)) {
-            if (item.name.equals(name)) {
-                return Error.DUPLICATION;
-            }
-        }
-        //检查是否有权限创建文件
-        if (check_permission(result.inodeid,Mode.WRITE_APPEND)){
-            long time =  new Date().getTime();
-            Inode node = new Inode(current_user.uid, FileType.FOLDER_FILE,time);
-            //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
-            //先打开父目录文件
-            long uid = openFolder(result.name,"",Mode.WRITE_APPEND);
-            String content = name+","+time+";";
-            //然后写入文件信息
-            write(uid,content);
-            //最后关闭文件
-            close(uid);
-            updateSAT(time);
-
-            //为文件对象初始化访问控制表
-            for (User user:usertable){
-                if (user.uid!=current_user.uid)
-                    node.acl.put(user.uid,new ACLItem(user.uid,1,0,0));
-                else
-                    node.acl.put(user.uid,new ACLItem(user.uid,1,1,1));
-            }
-            disk.inodeMap.put(time,node);
-            return Success.MKDIR;
-        }else{
-            return Error.PERMISSION_DENIED;
-        }
-    }
-
     private int rmdir(String name, String path) throws IOException {
         DirectoryItem result = getParent(path);
         if (result == null) {
@@ -403,7 +405,7 @@ public class Command extends HttpServlet {
            
             //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
             //先打开父目录文件
-            long uid = openFolder(result.name,"",Mode.WRITE_APPEND);
+            long uid = openFolder(result.name,path,Mode.WRITE_APPEND);
             String content = name+","+inode.creatTime+";";
             //然后写入文件信息
             write(uid,content);
@@ -492,6 +494,12 @@ public class Command extends HttpServlet {
 
     private long openFolder(String name,String path,int mode) throws UnsupportedEncodingException {
         DirectoryItem result = getParent(path);
+        for (DirectoryItem item:result.getDirs(disk)){
+            if (item.name.equals(name)){
+                result = item;
+                break;
+            }
+        }
         if (check_permission(result.inodeid, mode)) {
             //权限足够，接着检查是否当前进程已经打开了该文件
             for (UserOpenFile uof : current_user.uoftable.values()) {
@@ -520,6 +528,7 @@ public class Command extends HttpServlet {
             return Error.PERMISSION_DENIED;
         }
     }
+
     private void close(long uid) {
         //关闭文件,需要提供一个文件描述符,系统在用户进程中的打开文件表找到对应文件，然后删除该文件项
         //并且根据获得的sid查找系统打开文件表，如果系统打开文件表中对应表项的打开计数器的值>1那么-1，否则，删除表项
@@ -577,9 +586,9 @@ public class Command extends HttpServlet {
             //中文字符占两个字节，其他字符为1个字节
             byte[] bytes = content.getBytes();
             //r为0表示所有分配的磁盘块都刚好占满
-            int r = uitem.wpoint % Disk.DISK_SIZE;
+            int r = uitem.wpoint % DiskBlockNode.NODE_SIZE;
             //start表示在分配给该文件的磁盘块里面第一个没写入数据的磁盘块的下标
-            int start = uitem.wpoint / Disk.DISK_SIZE;
+            int start = uitem.wpoint / DiskBlockNode.NODE_SIZE;
             if (r != 0||start<disk.inodeMap.get(sitem.fitem.inodeid).flist.size()-1)
             {
                 int k = 0;
@@ -617,14 +626,12 @@ public class Command extends HttpServlet {
                     }
                     i++;
                 }
-                //修改读写指针
-                uitem.wpoint += bytes.length;
-                
-                //修改文件的size为bytes.length
-                disk.inodeMap.get(sitem.fitem.inodeid).size = bytes.length;
-               
-                updateSAT(sitem.fitem.inodeid);
             }
+            //修改读写指针
+            uitem.wpoint += bytes.length;
+            //修改文件的size为写指针
+            disk.inodeMap.get(sitem.fitem.inodeid).size = uitem.wpoint;
+            updateSAT(sitem.fitem.inodeid);
         }
         return Success.WRITE;
     }
@@ -968,9 +975,10 @@ public class Command extends HttpServlet {
     }
 
     private void getDirectory() throws UnsupportedEncodingException {
-        String json = getDirectory(disk.sroot).toJSONString();
-        System.out.println(json);
-        out.println(json);
+        JSONObject object = getDirectory(disk.sroot);
+        JSONArray array = (JSONArray) object.get("children");
+        System.out.println(array.toJSONString());
+        out.println(array.toJSONString());
     }
 
     private void getTableData(DirectoryItem root) throws UnsupportedEncodingException {
