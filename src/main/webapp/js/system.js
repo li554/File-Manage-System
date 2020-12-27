@@ -66,8 +66,10 @@ var app = new Vue({
         })
             .then(function (response) {
                 console.log(response.data);
-                that.getTableData("");
                 that.getDirectory();
+                setTimeout(function () {
+                    that.getTableData("");
+                },100);
             })
             .catch(function (error) {
                 console.log(error);
@@ -102,7 +104,13 @@ var app = new Vue({
                 })
                     .then(function (response) {
                         console.log(response.data);
-                        that.getTableData("");
+                        var object = response.data;
+                        if (object.code == that.Success.CD)
+                            that.getTableData("");
+                        else {
+                            that.$message(object.msg);
+                            console.log(object.msg);
+                        }
                     })
                     .catch(function (error) {
                         console.log(error);
@@ -132,7 +140,7 @@ var app = new Vue({
             })
                 .then(function (response) {
                     var object = response.data;
-                    if (object.code == that.Success.WRITE)
+                    if (object.code == that.Success.CD)
                         that.$message('保存成功');
                     else {
                         that.$message(object.msg);
@@ -163,12 +171,20 @@ var app = new Vue({
                 continue;
             }
             this.paths.push(path);
+            console.log(this.paths);
+            console.log(this.paths.join("/"));
             axios.post('/cmd', {
                 param: ["cd", "/" + this.paths.join("/")]
             })
                 .then(function (response) {
                     console.log(response.data);
-                    that.getTableData();
+                    var object = response.data;
+                    if (object.code == that.Success.CD)
+                        that.getTableData("");
+                    else {
+                        that.$message(object.msg);
+                        console.log(object.msg);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -230,9 +246,16 @@ var app = new Vue({
                 param: ["delete", that.tempfilename, ""]
             })
                 .then(function (response) {
-                    console.log(response);
-                    that.getTableData("");
-                    that.getDirectory();
+                    var object2 = response.data;
+                    if (object2.code == 0) {
+                        that.getTableData("");
+                        setTimeout(function (){
+                            that.getDirectory();
+                        },100);
+                    } else {
+                        that.$message(object2.msg);
+                        console.log(object2);
+                    }
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -278,7 +301,9 @@ var app = new Vue({
                     } else {
                         that.$message("粘贴成功");
                         that.getTableData("");
-                        that.getDirectory();
+                        setTimeout(function (){
+                            that.getDirectory();
+                        },100);;
                     }
                 })
                 .catch(function (error) {
@@ -295,12 +320,14 @@ var app = new Vue({
             })
                 .then(function (response) {
                     var obj = response.data;
-                    if (obj.code != -14) {
+                    if (obj.code != that.Success.RENAME) {
                         console.log(obj.msg);
                         that.$message(obj.msg);
                     } else {
                         that.getTableData("");
-                        that.getDirectory();
+                        setTimeout(function (){
+                            that.getDirectory();
+                        },100);
                     }
                 })
                 .catch(function (error) {
@@ -333,7 +360,9 @@ var app = new Vue({
                     var object = response.data;
                     if (object.code == that.Success.CREATE){
                         that.getTableData("");
-                        that.getDirectory();
+                        setTimeout(function (){
+                            that.getDirectory();
+                        },100);;
                     }else {
                         that.$message(object.msg);
                         console.log(object.msg);
@@ -353,7 +382,9 @@ var app = new Vue({
                     var object = response.data;
                     if (object.code == that.Success.MKDIR){
                         that.getTableData("");
-                        that.getDirectory();
+                        setTimeout(function (){
+                            that.getDirectory();
+                        },100);
                     }else {
                         that.$message(object.msg);
                         console.log(object.msg);
@@ -378,7 +409,9 @@ var app = new Vue({
                     var object = response.data;
                     if (object.code == that.Success.RMDIR){
                         that.getTableData("");
-                        that.getDirectory();
+                        setTimeout(function (){
+                            that.getDirectory();
+                        },100);
                     }else {
                         that.$message(object.msg);
                         console.log(object.msg);
@@ -487,7 +520,7 @@ var app = new Vue({
                             that.paths.push(item);
                         }
                     })
-                    that.tableData = response.data;
+                    that.getTableData("");
                 })
                 .catch(function (error) {
                     console.log(error);
@@ -506,6 +539,20 @@ var app = new Vue({
             var m = date.getMinutes() + ':'
             var s = date.getSeconds()
             return Y+M+D+h+m+s;
+        },
+        showDisk:function(){
+            var that = this;
+            axios.post('/cmd', {
+                param: ["showDisk"]
+            })
+                .then(function (response) {
+                    that.$alert(response.data, '磁盘属性', {
+                        dangerouslyUseHTMLString: true
+                    });
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
         }
     }
 });
