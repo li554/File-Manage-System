@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -387,13 +388,14 @@ public class Command extends HttpServlet {
                 String name = a[1];
                 String path = a[2];
                 DirectoryItem result = usertable.get(uid).getParent(path);
+                SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
                 for (DirectoryItem item:result.getDirs()){
                     Inode node = disk.inodeMap.get(item.inodeid);
                     if (item.name.equals(name)){
                         out.println("<div>名称:"+item.name+"</div>");
                         out.println("<div>类型:"+ (node.type==FileType.PLAIN_FILE?"文件":"文件夹")+"</div>");
-                        out.println("<div>创建时间:"+node.creatTime+"</div>");
-                        out.println("<div>修改时间:"+node.lastModifyTime+"</div>");
+                        out.println("<div>创建时间:"+simpleDateFormat.format(node.creatTime)+"</div>");
+                        out.println("<div>修改时间:"+simpleDateFormat.format(node.lastModifyTime)+"</div>");
                         out.println("<div>路径:"+a[2]+"/"+a[1]+"</div>");
                         out.println("<div>大小:"+node.size+"</div>");
                     }

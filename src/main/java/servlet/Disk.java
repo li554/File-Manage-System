@@ -203,7 +203,7 @@ class User{
         }
         //在获得的目录中查找是否已经存在该名字的文件，找到则提示重名错误
         for (DirectoryItem item : result.getDirs()) {
-            if (item.name.equals(name)) {
+            if (item.inodeid!=result.inodeid&&item.name.equals(name)) {
                 return Error.DUPLICATION;
             }
         }
@@ -213,13 +213,14 @@ class User{
             Inode node = new Inode(this.uid, FileType.FOLDER_FILE,time);
             disk.inodeMap.put(time,node);
             //为该索引节点创建一个目录项,即将目录项信息写入父目录文件(文件名，索引号）
-            //先打开父目录文件,路径应该修改删除掉当前名
             String fpath = path;
             if (path.equals("/")) fpath="./";
             long uid = open(result.name,fpath,Mode.WRITE_APPEND);
+            if (uid<0) return (int) uid;
             String content = name+","+time+";";
             //然后写入文件信息
-            write(uid,content);
+            int code = write(uid,content);
+            if (code!=Success.WRITE) return code;
             //最后关闭文件
             close(uid);
             //为文件对象初始化访问控制表
@@ -593,26 +594,49 @@ class User{
 
     public int delete(String name, String path) throws IOException {
         //首先直接在系统打开文件表中查找该文件，获取打开计数器的值
+        DirectoryItem result = getParent(path);
+        long inodeid = -1;
+        for (DirectoryItem item:result.getDirs()){
+            if (item.inodeid!=result.inodeid&&item.name.equals(name)) {
+                inodeid = item.inodeid;
+                break;
+            }
+        }
         for (SystemOpenFile file : softable.values()) {
-            if (file.fitem.name.equals(name) && file.opencount > 0) {
+            if (file.fitem.inodeid==inodeid) {
+                //如果两个文件的索引节点号相同，那么一定是同一个文件
                 return Error.USING_BY_OTHERS;
             }
         }
-        DirectoryItem result = getParent(path);
-        if (result == null) {
-            return Error.PATH_NOT_FOUND;
+        if (check_permission(result.inodeid,Mode.READ_WRITE)){
+            //在父目录中删除对应表项
+            //先打开父目录文件
+            String fpath = path;
+            if (path.equals("/")) fpath="./";
+            long uid = open(result.name,fpath,Mode.READ_WRITE);
+            if (uid<0) return (int) uid;
+            JSONObject object = read(uid);
+            String content = (String) object.get("content");
+            String substr = name+","+inodeid+";";
+            System.out.println(substr);
+            System.out.println(content);
+            content = content.replace(substr,"");
+            System.out.println(content);
+            //然后写入文件信息
+            int code = write(uid,content);
+            if (code!=Success.WRITE) return code;
+            //最后关闭文件
+            close(uid);
+            //回收节点
+            disk.recoverDist(disk.inodeMap.get(inodeid));
+            //删除索引节点
+            disk.inodeMap.remove(inodeid);
+            //从访问权限表中删除用户对该文件的权限
+            this.visitList.remove(inodeid);
+            return Success.DELETE;
+        }else{
+            return Error.PERMISSION_DENIED;
         }
-        for (DirectoryItem item : result.getDirs()) {
-            if (item.name.equals(name)) {
-                //没有被占用的话，判断一下用户是否有删除文件的权限，即是否有修改父目录文件的权限
-                if (check_permission(result.inodeid,Mode.WRITE_FIRST)){
-                    return delete(item, result,path);
-                }else{
-                    return Error.PERMISSION_DENIED;
-                }
-            }
-        }
-        return Error.UNKNOWN;
     }
 
     public long open(String name, String path, int mode) throws IOException {     //传入的是一个引用对象
@@ -649,29 +673,6 @@ class User{
             }
         }
         return Error.UNKNOWN;
-    }
-
-    public int delete(DirectoryItem file, DirectoryItem parent,String path) throws IOException {
-        disk.recoverDist(disk.inodeMap.get(file.inodeid));
-        //在父目录中删除对应表项
-        //先打开父目录文件
-        String fpath = path;
-        if (path.equals("/")) fpath="./";
-        long uid = open(parent.name,fpath,Mode.READ_WRITE);
-        if (uid<0) return (int)uid;
-        JSONObject object = read(uid);
-        String content = (String) object.get("content");
-        String delstr = file.name+","+file.inodeid+";";
-        content = content.replace(delstr,"");
-        //然后写入文件信息
-        int code = write(uid,content);
-        if (code!=Success.WRITE) return code;
-        //最后关闭文件
-        close(uid);
-        disk.inodeMap.remove(file.inodeid);
-        //删除对该文件的权限
-        this.visitList.remove(file.inodeid);
-        return Success.DELETE;
     }
 
     public boolean check_permission(long inodeid, int mode) {
@@ -735,7 +736,10 @@ class User{
                 }
             }
         }
+        //删除目录的索引节点
         disk.inodeMap.remove(dir.inodeid);
+        //在访问权限表中删除对应的权限
+        this.visitList.remove(dir.inodeid);
     }
 }
 

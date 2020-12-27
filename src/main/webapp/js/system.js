@@ -247,7 +247,7 @@ var app = new Vue({
             })
                 .then(function (response) {
                     var object2 = response.data;
-                    if (object2.code == 0) {
+                    if (object2.code == that.Success.DELETE) {
                         that.getTableData("");
                         setTimeout(function (){
                             that.getDirectory();
