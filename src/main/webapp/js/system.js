@@ -295,7 +295,7 @@ var app = new Vue({
                 .then(function (response) {
                     console.log(response);
                     var object = response.data;
-                    if (object.code < 0) {
+                    if (object.code!=that.Success.PASTE) {
                         console.log(object.msg);
                         that.$message(object.msg);
                     } else {
